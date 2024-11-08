@@ -1,8 +1,8 @@
 
 
 ## GFS Architecture 
-###single master multiple chunkservers , accessed by many clients.
-#### File
+### Single master multiple chunkservers , accessed by many clients.
+### File
 - divided into fixed-size chunks
 - labelled with 64-bit unique global IDs(called handles)
 - stored at chunk servers
