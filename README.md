@@ -93,14 +93,6 @@ Yes, the explanation you provided is **correct**. Here's a slightly refined vers
   - There is **at most one primary** chunkserver for a given chunk.
   - Different chunkservers can be the primary for **different chunks**, allowing parallel writes to different chunks without interference.
 
-##### Summary:
-- **Single primary per chunk** at any time.
-- The **master grants leases** to chunkservers to ensure a single primary for each chunk.
-- **Lease renewal** ensures a chunkserver remains the primary until it fails to refresh the lease.
-- The **master** assigns a new primary if it detects a failure to refresh the lease.
-
-This approach helps maintain consistency in GFS by ensuring that write operations are coordinated through a single primary for each chunk.
-
 ### RecordAppend Operation 
 - Client → Master: Requests chunk handle and replica locations for the last chunk in the file.
 - Master → Client: Provides chunk handle and primary and secondary replica locations.
