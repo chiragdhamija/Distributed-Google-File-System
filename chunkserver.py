@@ -50,7 +50,9 @@ class ChunkServer:
 
         elif data['type'] == 'READ':
             chunk_id = data['chunk_id']
-            response = {"status": "OK", "content": self.storage.get(chunk_id, b'')}
+            # Retrieve the chunk content
+            content = self.storage.get(chunk_id, b'')
+            response = {"status": "OK", "content": content}
             client_socket.send(pickle.dumps(response))
 
         client_socket.close()

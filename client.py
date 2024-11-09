@@ -2,73 +2,93 @@ import socket
 import pickle
 import sys
 
-class GFSClient:
+class Client:
     def __init__(self, master_host, master_port):
         self.master_host = master_host
         self.master_port = master_port
 
     def read(self, filename):
-        # Step 1: Request metadata from the master
-        master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        master_socket.connect((self.master_host, self.master_port))
-        master_socket.send(pickle.dumps({"type": "READ", "filename": filename}))
-        
-        response = pickle.loads(master_socket.recv(1024))
-        master_socket.close()
+        print("here 1")
+        request = {"type": "READ", "filename": filename}
 
-        if response["status"] == "File Not Found":
-            print("File not found on the server.")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            s.send(pickle.dumps(request))
+            response = pickle.loads(s.recv(1024))
+
+        # Check if the response contains an error message
+        if response.get("status") != "OK":
+            print("Error:", response.get("message", "Unknown error"))
             return
 
-        # Step 3: Request data from chunk servers for each chunk
+        print("Read operation response:", response)
         for chunk_id, servers in zip(response["chunks"], response["locations"]):
             for server in servers:
-                chunk_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                chunk_socket.connect(server)
-                chunk_socket.send(pickle.dumps({"type": "READ", "chunk_id": chunk_id}))
-                chunk_response = pickle.loads(chunk_socket.recv(1024))
-                print(f"Chunk {chunk_id} data: {chunk_response['content']}")
-                chunk_socket.close()
+                self.retrieve_chunk_data(server, chunk_id)
 
-    def write(self, filename, write_offset, data):
-        # Step 1: Request metadata from master
-        master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        master_socket.connect((self.master_host, self.master_port))
-        master_socket.send(pickle.dumps({"type": "WRITE", "filename": filename, "write_offset": write_offset}))
-        
-        response = pickle.loads(master_socket.recv(1024))
-        master_socket.close()
+    def write(self, filename, data):
+        print("here 1")
+        request = {"type": "WRITE", "filename": filename, "write_offset": 0}  # Example offset for simplicity
 
-        if response["status"] == "OK":
-            chunk_id = response["chunk_id"]
-            chunk_servers = response["locations"]
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            s.send(pickle.dumps(request))
+            response = pickle.loads(s.recv(1024))
 
-            # Step 3: Write to the primary chunk server
-            primary_server = chunk_servers[0]  # Primary chunk server is first
-            chunk_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            chunk_socket.connect(primary_server)
-            chunk_socket.send(pickle.dumps({"type": "WRITE", "chunk_id": chunk_id, "content": data, "replicas": chunk_servers[1:]}))
-            chunk_response = pickle.loads(chunk_socket.recv(1024))
-            chunk_socket.close()
+        # Check if the response contains an error message
+        if response.get("status") != "OK":
+            print("Error:", response.get("message", "Unknown error"))
+            return
 
-            # Step 6: Final acknowledgment from the primary server
-            print("Write successful, acknowledgment received.")
+        print("Write operation response:", response)
+        chunk_id = response["chunk_id"]
+        servers = response["locations"]
+        for server in servers:
+            self.send_chunk_data(server, chunk_id, data)
 
-# Start the client
+    def retrieve_chunk_data(self, server, chunk_id):
+        # Simulating data retrieval from chunk server
+        print(f"Retrieving chunk {chunk_id} from {server}")
+
+        # Create a socket to request chunk data from the chunk server
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as chunk_socket:
+            chunk_socket.connect(server)  # Connect to the chunk server
+            request = {"type": "READ", "chunk_id": chunk_id}
+            chunk_socket.send(pickle.dumps(request))
+
+            # Receive the response from the chunk server
+            response = pickle.loads(chunk_socket.recv(1024))
+
+            # Check if content is in bytes or string and handle accordingly
+            content = response.get("content", b'')
+            if isinstance(content, bytes):
+                print(f"Content of chunk {chunk_id}: {content.decode()}")  # decode only if it's bytes
+            else:
+                print(f"Content of chunk {chunk_id}: {content}")  # handle as string if it's already decoded
+
+    def send_chunk_data(self, server, chunk_id, data):
+        print(f"Sending data to chunk {chunk_id} on {server}")
+        # Simulating data sending to chunk server
+        request = {"type": "WRITE", "chunk_id": chunk_id, "content": data, "replicas": [server]}
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(server)
+            s.send(pickle.dumps(request))  # Send the data to chunk server
+            response = pickle.loads(s.recv(1024))  # Acknowledge response
+            print(f"Write response from server: {response}")
+
+# Example usage
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python client.py <filename> <write|read>")
-        sys.exit(1)
+    client = Client("127.0.0.1", 5000)
+    operation = sys.argv[2]
 
     filename = sys.argv[1]
-    operation = sys.argv[2]
-    
-    client = GFSClient('127.0.0.1', 5000)  # Hardcoded master address and port
-    
-    if operation == "read":
+    data = "Sample data for write operation"  # Example data
+
+    if operation == "write":
+        print("write")
+        client.write(filename, data)
+    elif operation == "read":
+        print("read")
         client.read(filename)
-    elif operation == "write":
-        data = b"Hello, GFS! Writing data to file."
-        client.write(filename, 0, data)
     else:
         print("Invalid operation. Use 'read' or 'write'.")

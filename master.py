@@ -26,20 +26,27 @@ class MasterServer:
             threading.Thread(target=self.handle_client, args=(client_socket,)).start()
 
     def handle_client(self, client_socket):
+        # Receive and deserialize the data from the client
         data = pickle.loads(client_socket.recv(1024))
         request = data.get('type')
 
+        # Initialize the response variable
+        response = {}
+
+        # Process the request based on the type
         if request == 'REGISTER_CHUNKSERVER':
             self.handle_register_chunkserver(data['address'])
+            response = {"status": "OK", "message": "Chunk server registered"}
 
         elif request == 'READ':
             response = self.handle_read(data['filename'])
+
         elif request == 'WRITE':
             response = self.handle_write(data['filename'], data['write_offset'])
 
+        # Send the response back to the client
         client_socket.send(pickle.dumps(response))
         client_socket.close()
-
     def handle_register_chunkserver(self, chunkserver_address):
         # Register the chunk server dynamically
         with self.lock:
@@ -48,11 +55,21 @@ class MasterServer:
             print(f"Chunk server registered: {chunkserver_address}")
 
     def handle_read(self, filename):
-        if filename in self.file_to_chunks:
-            chunks = self.file_to_chunks[filename]
-            locations = [self.chunk_locations[chunk] for chunk in chunks]
-            return {"status": "OK", "chunks": chunks, "locations": locations}
-        return {"status": "File Not Found"}
+        # Check if the file exists in the system
+        if filename not in self.file_to_chunks:
+            return {"status": "File Not Found"}
+
+        chunks = self.file_to_chunks[filename]
+        locations = []
+
+        # Ensure each chunk has locations assigned
+        for chunk in chunks:
+            if chunk in self.chunk_locations:
+                locations.append(self.chunk_locations[chunk])
+            else:
+                return {"status": "Error", "message": f"Chunk {chunk} has no location information"}
+
+        return {"status": "OK", "chunks": chunks, "locations": locations}
 
     def handle_write(self, filename, write_offset):
         with self.lock:
@@ -64,13 +81,15 @@ class MasterServer:
                 self.file_to_chunks[filename] = []
             self.file_to_chunks[filename].append(chunk_id)
 
-            # Assign chunk servers to the chunk, now from the dynamic list
+            # Check if enough chunk servers are registered to fulfill replication requirements
             if len(self.chunk_servers) < self.replication_factor:
                 return {"status": "Error", "message": "Not enough chunk servers available"}
-            
-            chunk_servers = self.chunk_servers[:self.replication_factor]  # Use only the replication_factor number of chunk servers
+
+            # Assign chunk servers to the chunk
+            chunk_servers = self.chunk_servers[:self.replication_factor]  # Only take required number of chunk servers
             self.chunk_locations[chunk_id] = chunk_servers
 
+            print(f"Assigned chunk {chunk_id} to servers: {chunk_servers}")
             return {"status": "OK", "chunk_id": chunk_id, "locations": chunk_servers}
 
 # Start the master server
