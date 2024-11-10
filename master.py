@@ -4,7 +4,7 @@ import threading
 import json
 
 class MasterServer:
-    def __init__(self, host, port, root_dir='master_metadata'):
+    def __init__(self, host, port, root_dir='master_metadata', chunk_size=64 * 1024 * 1024):
         self.host = host
         self.port = port
         self.root_dir = root_dir
@@ -12,6 +12,7 @@ class MasterServer:
         self.chunk_servers = []  # List of chunk server addresses
         self.next_chunk_id = 1
         self.lock = threading.Lock()
+        self.chunk_size = chunk_size
 
         # Load metadata from persistent storage if available
         os.makedirs(self.root_dir, exist_ok=True)
@@ -72,29 +73,56 @@ class MasterServer:
         return {"status": "OK", "chunks": chunks, "locations": primary_locations}
 
     def handle_write(self, filename, data):
+        if not data:
+            return {"status": "Error", "message": "No data provided for writing"}
+
         with self.lock:
             chunk_id = self.next_chunk_id
             self.next_chunk_id += 1
 
-            if filename not in self.file_to_chunks:
-                self.file_to_chunks[filename] = []
-            self.file_to_chunks[filename].append(chunk_id)
+            # Split file into chunks of 64MB
+            chunks = self.split_into_chunks(data)
+            self.file_to_chunks[filename] = []
 
             if len(self.chunk_servers) < self.replication_factor:
                 return {"status": "Error", "message": "Not enough chunk servers available"}
 
+            # Assign chunks to servers
             chunk_servers = self.chunk_servers[:self.replication_factor]
             primary_server = chunk_servers[0]
-            self.chunk_locations[chunk_id] = chunk_servers
-            self.chunk_leases[chunk_id] = primary_server
 
-            print(f"Assigned primary for chunk {chunk_id} to {primary_server}, replicas: {chunk_servers[1:]}")
-            self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
-            self.save_metadata(self.chunk_locations, 'chunk_locations.json')
+            # Prepare chunking and replication
+            chunk_ids = []
+            for i, chunk_data in enumerate(chunks):
+                chunk_id = self.next_chunk_id
+                self.next_chunk_id += 1
 
-            # Send the primary server, chunk_id, and locations to the client for the write operation
-            return {"status": "OK", "chunk_id": chunk_id, "locations": chunk_servers, "primary": primary_server}
+                # Save chunk locations
+                self.chunk_locations[chunk_id] = chunk_servers
+                self.chunk_leases[chunk_id] = primary_server
+                self.file_to_chunks[filename].append(chunk_id)
 
+                # Distribute chunks across the chunk servers
+                print(f"Assigned chunk {chunk_id} to primary {primary_server}, replicas: {chunk_servers[1:]}")
+                self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
+                self.save_metadata(self.chunk_locations, 'chunk_locations.json')
+
+                chunk_ids.append(chunk_id)
+
+            # Now send the response including 'primary_servers' key
+            return {
+                "status": "OK",
+                "chunk_ids": chunk_ids,
+                "primary_servers": [primary_server] * len(chunk_ids),  # Use the same primary for all chunks
+                "locations": [chunk_servers] * len(chunk_ids)  # Locations for each chunk
+            }
+
+
+
+    def split_into_chunks(self, data):
+        """Split data into chunks of size self.chunk_size"""
+        chunks = [data[i:i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
+        return chunks
 
 if __name__ == "__main__":
     master_host = '127.0.0.1'

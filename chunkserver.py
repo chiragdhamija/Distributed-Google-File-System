@@ -59,16 +59,16 @@ class ChunkServer:
         client_socket.close()
 
     def handle_write(self, client_socket, chunk_id, content, replicas):
-        # Primary server writes first
+        # Write to primary server
         chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
         with open(chunk_file, 'w') as f:
             f.write(content)
         
-        # Inform primary server of successful write
+        # Acknowledge primary server
         response = {"status": "OK", "message": "Chunk data written"}
         client_socket.send(json.dumps(response).encode())
 
-        # Send data to replica servers
+        # Replicate to secondary servers
         self.replicate_to_secondary_servers(chunk_id, content, replicas)
 
     def replicate_to_secondary_servers(self, chunk_id, content, replicas):
@@ -76,8 +76,6 @@ class ChunkServer:
             print("No replicas available for replication.")
             return
         
-        primary_server = replicas[0]
-        # Send data to all secondary servers
         for server in replicas[1:]:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect(tuple(server))
@@ -89,10 +87,6 @@ class ChunkServer:
                 }
                 s.send(json.dumps(request).encode())
                 s.recv(1024)  # Await acknowledgment from secondary servers
-
-        # Acknowledge primary server after replication
-        self.send_acknowledgment_to_primary(primary_server, chunk_id)
-
 
     def send_acknowledgment_to_primary(self, primary_server, chunk_id):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

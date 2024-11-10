@@ -22,13 +22,17 @@ class Client:
             return
 
         print("File found, retrieving chunks...")
-        # Fetch and print each unique chunk once from its primary server
+        # Fetch and print each chunk from its primary server
         for chunk_id, primary_server in zip(response["chunks"], response["locations"]):
             self.retrieve_chunk_data(primary_server, chunk_id)
 
+        # Write operation in Client
     def write(self, filename, data):
         print("Writing data to file:", filename)
-        request = {"type": "WRITE", "filename": filename}  # Removed write_offset
+        chunk_size = 64 * 1024 * 1024  # 64 MB per chunk
+        chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+        request = {"type": "WRITE", "filename": filename, "data": data}
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.master_host, self.master_port))
@@ -39,12 +43,15 @@ class Client:
             print("Error:", response.get("message", "Unknown error"))
             return
 
-        chunk_id = response["chunk_id"]
-        primary_server = response["primary"]
-        servers = response["locations"]
+        # Write each chunk to the primary server and replicate to secondary servers
+        for idx, chunk_data in enumerate(chunks):
+            chunk_id = response["chunk_ids"][idx]  # Get the chunk ID from the response
+            primary_server = response["primary_servers"][idx]
+            servers = response["locations"][idx]  # List of servers for replication
 
-        # Send data to the primary chunkserver
-        self.send_chunk_data(tuple(primary_server), chunk_id, data, servers)
+            # Send chunk data to the primary chunk server
+            self.send_chunk_data(tuple(primary_server), chunk_id, chunk_data, servers)
+
 
     def retrieve_chunk_data(self, server, chunk_id):
         # Ensure 'server' is a tuple (host, port) before attempting connection
