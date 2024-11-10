@@ -22,9 +22,9 @@ class Client:
             return
 
         print("File found, retrieving chunks...")
-        for chunk_id, servers in zip(response["chunks"], response["locations"]):
-            for server in servers:
-                self.retrieve_chunk_data(server, chunk_id)
+        # Fetch and print each unique chunk once from its primary server
+        for chunk_id, primary_server in zip(response["chunks"], response["locations"]):
+            self.retrieve_chunk_data(primary_server, chunk_id)
 
     def write(self, filename, data):
         print("Writing data to file:", filename)
@@ -51,25 +51,21 @@ class Client:
         if isinstance(server, list):
             server = tuple(server)  # Convert list to tuple if necessary
         
-        # Simulating data retrieval from chunk server
-        print(f"Retrieving chunk {chunk_id} from {server}")
+        print(f"Retrieving chunk {chunk_id} from primary server {server}")
 
-        # Create a socket to request chunk data from the chunk server
+        # Create a socket to request chunk data from the primary chunk server
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as chunk_socket:
-            chunk_socket.connect(server)  # Connect to the chunk server
+            chunk_socket.connect(server)  # Connect to the primary server
             request = {"type": "READ", "chunk_id": chunk_id}
             chunk_socket.send(json.dumps(request).encode())
 
             # Receive the response from the chunk server
             response = json.loads(chunk_socket.recv(1024))
+            content = response.get("content", "")
 
-            # Check if content is in bytes or string and handle accordingly
-            content = response.get("content", b'')
-            if isinstance(content, bytes):
-                print(f"Content of chunk {chunk_id}: {content.decode()}")  # decode only if it's bytes
-            else:
-                print(f"Content of chunk {chunk_id}: {content}")  # handle as string if it's already decoded
-
+            # Print the content of the chunk
+            print(f"Content of chunk {chunk_id}: {content}")
+            
     def send_chunk_data(self, primary_server, chunk_id, data, servers):
         print(f"Sending data to primary server {primary_server} for chunk {chunk_id}")
         request = {"type": "WRITE", "chunk_id": chunk_id, "content": data, "replicas": servers}

@@ -68,8 +68,8 @@ class MasterServer:
             return {"status": "File Not Found"}
 
         chunks = self.file_to_chunks[filename]
-        locations = [self.chunk_locations[chunk] for chunk in chunks if chunk in self.chunk_locations]
-        return {"status": "OK", "chunks": chunks, "locations": locations}
+        primary_locations = [self.chunk_locations[chunk][0] for chunk in chunks if chunk in self.chunk_locations]
+        return {"status": "OK", "chunks": chunks, "locations": primary_locations}
 
     def handle_write(self, filename, data):
         with self.lock:

@@ -72,6 +72,10 @@ class ChunkServer:
         self.replicate_to_secondary_servers(chunk_id, content, replicas)
 
     def replicate_to_secondary_servers(self, chunk_id, content, replicas):
+        if not replicas:
+            print("No replicas available for replication.")
+            return
+        
         primary_server = replicas[0]
         # Send data to all secondary servers
         for server in replicas[1:]:
@@ -88,6 +92,7 @@ class ChunkServer:
 
         # Acknowledge primary server after replication
         self.send_acknowledgment_to_primary(primary_server, chunk_id)
+
 
     def send_acknowledgment_to_primary(self, primary_server, chunk_id):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
