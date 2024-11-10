@@ -9,6 +9,7 @@ class MasterServer:
         self.port = port
         self.file_to_chunks = {}  # file path -> list of chunk handles
         self.chunk_locations = {}  # chunk handle -> list of chunk servers
+        self.chunk_leases = {}  # Track which chunkserver has the primary lease
         self.replication_factor = 3
         self.chunk_servers = []  # List of chunk server addresses
         self.next_chunk_id = 1
@@ -47,6 +48,7 @@ class MasterServer:
         # Send the response back to the client
         client_socket.send(pickle.dumps(response))
         client_socket.close()
+
     def handle_register_chunkserver(self, chunkserver_address):
         # Register the chunk server dynamically
         with self.lock:
@@ -76,21 +78,22 @@ class MasterServer:
             chunk_id = self.next_chunk_id
             self.next_chunk_id += 1
 
-            # Register chunk metadata
             if filename not in self.file_to_chunks:
                 self.file_to_chunks[filename] = []
             self.file_to_chunks[filename].append(chunk_id)
 
-            # Check if enough chunk servers are registered to fulfill replication requirements
             if len(self.chunk_servers) < self.replication_factor:
                 return {"status": "Error", "message": "Not enough chunk servers available"}
 
-            # Assign chunk servers to the chunk
-            chunk_servers = self.chunk_servers[:self.replication_factor]  # Only take required number of chunk servers
-            self.chunk_locations[chunk_id] = chunk_servers
+            # Select primary and replica servers
+            chunk_servers = self.chunk_servers[:self.replication_factor]
+            primary_server = chunk_servers[0]  # Assign the first as primary
 
-            print(f"Assigned chunk {chunk_id} to servers: {chunk_servers}")
-            return {"status": "OK", "chunk_id": chunk_id, "locations": chunk_servers}
+            self.chunk_locations[chunk_id] = chunk_servers
+            self.chunk_leases[chunk_id] = primary_server  # Record primary lease
+
+            print(f"Assigned primary for chunk {chunk_id} to {primary_server}, replicas: {chunk_servers[1:]}")
+            return {"status": "OK", "chunk_id": chunk_id, "locations": chunk_servers, "primary": primary_server}
 
 # Start the master server
 if __name__ == "__main__":

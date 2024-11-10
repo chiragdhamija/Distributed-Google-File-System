@@ -40,12 +40,11 @@ class ChunkServer:
             self.storage[chunk_id] = data['content']
             response = {"status": "OK", "chunk_id": chunk_id}
 
-            # Simulate write to replicas
-            for server in data['replicas']:
-                # Here you'd normally send the data to the replica servers
-                print(f"Sending to replica server {server}")
-            
-            # Acknowledge back to primary
+            # If this server is primary, it sends data to replicas
+            if self.host == data['replicas'][0][0] and self.port == data['replicas'][0][1]:
+                for server in data['replicas'][1:]:
+                    self.replicate_write(server, chunk_id, data['content'])
+
             client_socket.send(pickle.dumps(response))
 
         elif data['type'] == 'READ':
@@ -55,7 +54,24 @@ class ChunkServer:
             response = {"status": "OK", "content": content}
             client_socket.send(pickle.dumps(response))
 
+        elif data['type'] == 'WRITE_REPLICA':
+            chunk_id = data['chunk_id']
+            content = data['content']
+            # Replicate the chunk data on this server
+            self.storage[chunk_id] = content
+            response = {"status": "OK", "message": f"Chunk {chunk_id} replicated successfully"}
+            client_socket.send(pickle.dumps(response))
+
         client_socket.close()
+
+    def replicate_write(self, server, chunk_id, content):
+        print(f"Replicating chunk {chunk_id} to {server}")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(server)
+            request = {"type": "WRITE_REPLICA", "chunk_id": chunk_id, "content": content}
+            s.send(pickle.dumps(request))
+            response = pickle.loads(s.recv(1024))  # Ensure a response is received
+            print(f"Acknowledgment from replica {server}: {response}")
 
 # Start the chunk server
 if __name__ == "__main__":
