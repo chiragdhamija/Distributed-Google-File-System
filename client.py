@@ -1,5 +1,5 @@
 import socket
-import pickle
+import json
 import sys
 
 class Client:
@@ -8,30 +8,32 @@ class Client:
         self.master_port = master_port
 
     def read(self, filename):
-        print("here 1")
+        print("Reading file:", filename)
         request = {"type": "READ", "filename": filename}
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.master_host, self.master_port))
-            s.send(pickle.dumps(request))
-            response = pickle.loads(s.recv(1024))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
 
         # Check if the response contains an error message
         if response.get("status") != "OK":
             print("Error:", response.get("message", "Unknown error"))
             return
 
-        print("Read operation response:", response)
+        print("File found, retrieving chunks...")
         for chunk_id, servers in zip(response["chunks"], response["locations"]):
             for server in servers:
                 self.retrieve_chunk_data(server, chunk_id)
 
     def write(self, filename, data):
-        request = {"type": "WRITE", "filename": filename, "write_offset": 0}
+        print("Writing data to file:", filename)
+        request = {"type": "WRITE", "filename": filename}  # Removed write_offset
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.master_host, self.master_port))
-            s.send(pickle.dumps(request))
-            response = pickle.loads(s.recv(1024))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
 
         if response.get("status") != "OK":
             print("Error:", response.get("message", "Unknown error"))
@@ -42,10 +44,13 @@ class Client:
         servers = response["locations"]
 
         # Send data to the primary chunkserver
-        self.send_chunk_data(primary_server, chunk_id, data, servers)
-
+        self.send_chunk_data(tuple(primary_server), chunk_id, data, servers)
 
     def retrieve_chunk_data(self, server, chunk_id):
+        # Ensure 'server' is a tuple (host, port) before attempting connection
+        if isinstance(server, list):
+            server = tuple(server)  # Convert list to tuple if necessary
+        
         # Simulating data retrieval from chunk server
         print(f"Retrieving chunk {chunk_id} from {server}")
 
@@ -53,10 +58,10 @@ class Client:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as chunk_socket:
             chunk_socket.connect(server)  # Connect to the chunk server
             request = {"type": "READ", "chunk_id": chunk_id}
-            chunk_socket.send(pickle.dumps(request))
+            chunk_socket.send(json.dumps(request).encode())
 
             # Receive the response from the chunk server
-            response = pickle.loads(chunk_socket.recv(1024))
+            response = json.loads(chunk_socket.recv(1024))
 
             # Check if content is in bytes or string and handle accordingly
             content = response.get("content", b'')
@@ -71,8 +76,8 @@ class Client:
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(primary_server)
-            s.send(pickle.dumps(request))
-            response = pickle.loads(s.recv(1024))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
             print(f"Write response from primary server: {response}")
 
 # Example usage
@@ -83,11 +88,11 @@ if __name__ == "__main__":
     filename = sys.argv[1]
 
     if operation == "write":
-        print("write")
-        data=input("Please enter the data that you want to write")
+        print("Write operation selected.")
+        data = input("Please enter the data that you want to write: ")
         client.write(filename, data)
     elif operation == "read":
-        print("read")
+        print("Read operation selected.")
         client.read(filename)
     else:
         print("Invalid operation. Use 'read' or 'write'.")
