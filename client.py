@@ -55,7 +55,7 @@ class Client:
 
 
     def retrieve_chunk_data(self, server, chunk_id):
-        # Ensure 'server' is a tuple (host, port) before attempting connection
+    # Ensure 'server' is a tuple (host, port) before attempting connection
         if isinstance(server, list):
             server = tuple(server)  # Convert list to tuple if necessary
         
@@ -71,8 +71,12 @@ class Client:
             response = json.loads(chunk_socket.recv(1024))
             content = response.get("content", "")
 
-            # Print the content of the chunk
-            print(f"Content of chunk {chunk_id}: {content}")
+            # Remove any trailing '%' padding from the content
+            cleaned_content = content.rstrip('%')
+
+            # Print the cleaned content of the chunk
+            print(f"Content of chunk {chunk_id} (without padding): {cleaned_content}")
+
             
     def send_chunk_data(self, primary_server, chunk_id, data, servers):
         print(f"Sending data to primary server {primary_server} for chunk {chunk_id}")
