@@ -98,14 +98,64 @@ Yes, the explanation you provided is **correct**. Here's a slightly refined vers
   - There is **at most one primary** chunkserver for a given chunk.
   - Different chunkservers can be the primary for **different chunks**, allowing parallel writes to different chunks without interference.
 
-### RecordAppend Operation 
-- Client → Master: Requests chunk handle and replica locations for the last chunk in the file.
-- Master → Client: Provides chunk handle and primary and secondary replica locations.
-- Client → Chunk Servers: Pushes data to all chunk servers.
-- Client → Primary: Sends record append request to the primary chunk server.
-- Primary: Determines offset and applies append; forwards the request to secondary chunk servers.
-- Secondary → Primary: Acknowledge successful append.
-- Primary → Client: Acknowledges completion of the record append operation.
+#
+
+This padding approach helps ensure record integrity, especially in distributed systems with concurrent access.
+
+**Record Append**
+
+- The client specifies only the data, not the file offset.
+- File offset is chosen by the primary.
 
 
 
+**Record Append Steps**
+
+1. Application originates a record append request.
+2. GFS client translates request and sends it to master.
+3. Master responds with chunk handle and (primary + secondary) replica locations.
+4. Client pushes write data to all locations.
+5. Primary checks if record fits in specified chunk.
+6. If record does not fit, then:
+   - The primary pads the chunk, tells secondaries to do the same, and informs the client of the inability/error.
+   - Client then retries the append with the next chunk.
+       - The primary chunk server for the next chunk may not be the same as this primary! So client has to retry.
+7. If record fits, then the primary:
+   - appends the record at some offset in chunk,
+   - tells secondaries to do the same (specifies offset),
+   - receives responses from secondaries,
+   - and sends final response to the client.
+
+---
+
+- GFS may insert padding data in between different record append operations.
+- Preferred that applications use this instead of write.
+- Applications should use mechanisms such as checksums with unique IDs to handle padding.
+
+
+## RecordAppend Operation 
+**Step 1 (Client → Master)**:  
+The application originates a record append request, specifying the **file name** and data to append (without specifying a file offset).
+
+**Step 2 (Master → Client)**:  
+The GFS client translates the request and sends it to the master, including the file name. The master responds with the handle of the last chunk in the file and the locations of primary and secondary replicas for that chunk.
+
+**Step 3 (Client → Primary Chunkserver)**:  
+The client pushes the data to primary chunkserver for that  last chunk of the related file.
+
+**Step 4 (Primary Chunkserver)**:  
+The primary chunkserver checks if the record fits within the specified chunk:
+
+**Step 4a If the record does not fit**:
+ The primary pads the remaining space in the chunk with '%', instructs secondary replicas of that chunk to do the same, and informs the client of the issue. The client retries the record append by creating the new chunks of the data to be appended for the filename by informing the master which updated the metadata and decide primary and secondary chunkserver for each replica, and ask for each chunk it asks primary chunkserver to create the chunks and replicate this chunk in secondary servers of this chunk
+**Step 4b If the record fits**:
+ The primary appends the record at an offset within the chunk, specifies this offset, and instructs the secondary replicas to append the record at the same offset. The primary collects acknowledgments from all secondary replicas.
+
+**Step 5 (Primary Chunkserver → Client)**:  
+Once all secondary chunkservers acknowledge the append, the primary sends a final response back to the client, confirming the success of the record append operation.
+
+---
+
+**Additional Notes**:
+- GFS may insert padding data between different record append operations to ensure data alignment and consistency.
+- Applications are encouraged to use mechanisms such as checksums or unique identifiers to distinguish valid records from any padding data, especially in cases where data alignment is critical. 
