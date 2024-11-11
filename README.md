@@ -1,5 +1,10 @@
 
-
+# How to run the code
+- run the bash file precompile.sh
+- run the master server by running python3 master.py
+- run atleast 3 chunkservers by running python3 chunkserver.py <port_number>
+- run client by python3 client.py <file_name> <operation> 
+- operations that can be run in the client are read, write.
 ## GFS Architecture 
 ### Single master multiple chunkservers , accessed by many clients.
 ### File
