@@ -55,15 +55,86 @@ class MasterServer:
             response = self.handle_read(data['filename'])
         elif request == 'WRITE':
             response = self.handle_write(data['filename'], data.get('data'))
+        elif request == 'RECORD_APPEND':
+            response = self.handle_record_append(data['filename'], data.get('data'))
+        elif request == 'RECORD_APPEND_RETRY':
+            response=self.retrying_append(data['filename'], data.get('data'))
 
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+    
+    def retrying_append(self,filename,data):
+        if not data:
+            return {"status": "Error", "message": "No data provided for writing"}
+
+        with self.lock:
+            chunk_id = self.next_chunk_id
+            self.next_chunk_id += 1
+
+            # Split file into chunks of 64MB
+            chunks = self.split_into_chunks(data)
+            if filename not in self.file_to_chunks:
+                self.file_to_chunks[filename] = []
+
+
+            if len(self.chunk_servers) < self.replication_factor:
+                return {"status": "Error", "message": "Not enough chunk servers available"}
+
+            chunk_ids = []
+            primary_servers = []
+            for i, chunk_data in enumerate(chunks):
+                chunk_id = self.next_chunk_id
+                self.next_chunk_id += 1
+
+                # Randomly select a primary chunk server and two other replicas
+                random.shuffle(self.chunk_servers)
+                primary_server = self.chunk_servers[0]
+                secondary_servers = self.chunk_servers[1:3]
+
+                # Save chunk locations
+                self.chunk_locations[chunk_id] = [primary_server] + secondary_servers
+                self.chunk_leases[chunk_id] = primary_server
+                self.file_to_chunks[filename].append(chunk_id)
+
+                # Distribute chunks across the chunk servers
+                print(f"Assigned chunk {chunk_id} to primary {primary_server}, replicas: {secondary_servers}")
+                self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
+                self.save_metadata(self.chunk_locations, 'chunk_locations.json')
+
+                chunk_ids.append(chunk_id)
+                primary_servers.append(primary_server)
+
+            # Now send the response including 'primary_servers' key
+            return {
+                "status": "OK",
+                "chunk_ids": chunk_ids,
+                "primary_servers": primary_servers,  # Different primary for each chunk
+                "locations": [self.chunk_locations[chunk_id] for chunk_id in chunk_ids]  # Locations for each chunk
+            }
 
     def handle_register_chunkserver(self, chunkserver_address):
         with self.lock:
             if chunkserver_address not in self.chunk_servers:
                 self.chunk_servers.append(chunkserver_address)
             print(f"Chunk server registered: {chunkserver_address}")
+    
+    def handle_record_append(self, filename, data):
+        if filename not in self.file_to_chunks:
+            return {"status": "Error", "message": "File not found"}
+
+        last_chunk_id = self.file_to_chunks[filename][-1]
+        last_chunk_location = self.chunk_locations.get(last_chunk_id, [])
+        if not last_chunk_location:
+            return {"status": "Error", "message": "No chunk servers found for last chunk"}
+
+        # Send back last chunk metadata
+        response = {
+            "status": "OK",
+            "last_chunk_id": last_chunk_id,
+            "primary_server": last_chunk_location[0],
+            "secondary_servers": last_chunk_location[1:]
+        }
+        return response
 
     def handle_read(self, filename):
         if filename not in self.file_to_chunks:

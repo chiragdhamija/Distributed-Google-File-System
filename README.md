@@ -133,29 +133,25 @@ This padding approach helps ensure record integrity, especially in distributed s
 - Applications should use mechanisms such as checksums with unique IDs to handle padding.
 
 
-## RecordAppend Operation 
-**Step 1 (Client → Master)**:  
-The application originates a record append request, specifying the **file name** and data to append (without specifying a file offset).
+### RecordAppend Operation
 
-**Step 2 (Master → Client)**:  
-The GFS client translates the request and sends it to the master, including the file name. The master responds with the handle of the last chunk in the file and the locations of primary and secondary replicas for that chunk.
+1. **Client → Master**: Client sends a request to append data to a specific file with file name and data.
+2. **Master → Client**: Master server returns metadata of the last chunk of the file(along with primary and secondary chunkservers locations of last chunk).
+3. **Client → Primary Chunkserver**: Client contacts the primary chunkserver to append the data and send it location of secondary chunkservers also to primary.
+   
+   **Case 1: Last chunk size exceeds chunk size**
+   - **Primary Chunkserver**: Checks if the available space in the last chunk is enough to append the data. If not, it pads the chunk with '%' and asks the secondary chunkservers to do the same padding. 
+   - **Primary Chunkserver**: Informs the client that there is insufficient space and the client contacts the master server.
+   - **Master → Client**: Master creates new chunks, assigns primary and secondary chunkservers, and updates metadata.
+   - ** New Primary Chunkserver**: Creates new chunks, replicates them to secondary chunkservers.
+   - **New Secondary Chunkservers → New Primary Chunkserver**: Each chunkserver sends acknowledgment after data is appended.
+   - **New Primary Chunkserver → Client**: Sends ACK to the client after receiving acknowledgments from all chunkservers.
 
-**Step 3 (Client → Primary Chunkserver)**:  
-The client pushes the data to primary chunkserver for that  last chunk of the related file.
-
-**Step 4 (Primary Chunkserver)**:  
-The primary chunkserver checks if the record fits within the specified chunk:
-
-**Step 4a If the record does not fit**:
- The primary pads the remaining space in the chunk with '%', instructs secondary replicas of that chunk to do the same, and informs the client of the issue. The client retries the record append by creating the new chunks of the data to be appended for the filename by informing the master which updated the metadata and decide primary and secondary chunkserver for each replica, and ask for each chunk it asks primary chunkserver to create the chunks and replicate this chunk in secondary servers of this chunk
-**Step 4b If the record fits**:
- The primary appends the record at an offset within the chunk, specifies this offset, and instructs the secondary replicas to append the record at the same offset. The primary collects acknowledgments from all secondary replicas.
-
-**Step 5 (Primary Chunkserver → Client)**:  
-Once all secondary chunkservers acknowledge the append, the primary sends a final response back to the client, confirming the success of the record append operation.
-
----
-
+   **Case 2: Last chunk size fits within chunk size**
+   - **Primary Chunkserver**: Appends the data to the last chunk.
+   - **Primary Chunkserver → Secondary Chunkservers**: Instructs secondary chunkservers to append the data to replica chunks.
+   - **Secondary Chunkservers → Primary Chunkserver**: Sends acknowledgment after appending the data.
+   - **Primary Chunkserver → Client**: Sends final acknowledgment to the client after receiving acknowledgment from secondary chunkservers.
 **Additional Notes**:
 - GFS may insert padding data between different record append operations to ensure data alignment and consistency.
 - Applications are encouraged to use mechanisms such as checksums or unique identifiers to distinguish valid records from any padding data, especially in cases where data alignment is critical. 

@@ -84,6 +84,69 @@ class Client:
             response = json.loads(s.recv(1024))
             print(f"Write response from primary server: {response}")
 
+    def record_append(self,filename,data):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            request = {
+                "type": "RECORD_APPEND",
+                "filename": filename,
+                "data": data
+            }
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
+        
+        if response['status'] != "OK":
+            print("Error:", response.get("message"))
+            return
+
+        primary_server = tuple(response['primary_server'])
+        secondary_servers = response['secondary_servers']
+        last_chunk_id = response['last_chunk_id']
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(primary_server)
+            append_request = {
+                "type": "APPEND",
+                "chunk_id": last_chunk_id,
+                "content": data,
+                "secondary_servers": secondary_servers
+            }
+            s.send(json.dumps(append_request).encode())
+            append_response = json.loads(s.recv(1024))
+
+            if append_response['status'] == "Insufficient Space":
+                print("Appending required a new chunk. Please retry.")
+                self.retry_append(filename,data)
+
+            else:
+                print("Data appended successfully.")
+    
+    def retry_append(self,filename,data):
+        print("Retrying append data to file:", filename)
+        chunk_size = 12   # 64 MB per chunk
+        chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+        request = {"type": "RECORD_APPEND_RETRY", "filename": filename, "data": data}
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
+
+        if response.get("status") != "OK":
+            print("Error:", response.get("message", "Unknown error"))
+            return
+
+        # Write each chunk to the primary server and replicate to secondary servers
+        for idx, chunk_data in enumerate(chunks):
+            chunk_id = response["chunk_ids"][idx]  # Get the chunk ID from the response
+            primary_server = response["primary_servers"][idx]  # Select primary server for this chunk
+            servers = response["locations"][idx]  # List of servers for replication
+
+            # Send chunk data to the primary chunk server
+            self.send_chunk_data(tuple(primary_server), chunk_id, chunk_data, servers)
+        
+
 # Example usage
 if __name__ == "__main__":
     client = Client("127.0.0.1", 5000)
@@ -98,5 +161,9 @@ if __name__ == "__main__":
     elif operation == "read":
         print("Read operation selected.")
         client.read(filename)
+    elif operation == "append":
+        print("Append Selected")
+        data=input("Please enter that you want to append: ")
+        client.record_append(filename,data)
     else:
         print("Invalid operation. Use 'read' or 'write'.")

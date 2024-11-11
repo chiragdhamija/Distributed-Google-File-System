@@ -11,6 +11,7 @@ class ChunkServer:
         self.master_host = master_host
         self.master_port = master_port
         self.storage_dir = f'{storage_dir}_{port}'
+        self.chunk_size=12
         os.makedirs(self.storage_dir, exist_ok=True)
 
     def start(self):
@@ -48,6 +49,73 @@ class ChunkServer:
         elif request == 'DELETE_CHUNK':
             chunk_id = data['chunk_id']
             self.handle_delete_chunk(client_socket, chunk_id)
+        elif request == 'APPEND':
+            chunk_id = data['chunk_id']
+            content = data['content']
+            secondary_servers = data.get('secondary_servers', [])
+            self.handle_append(client_socket, chunk_id, content, secondary_servers)
+    
+    def handle_append(self, client_socket, chunk_id, content, secondary_servers):
+
+        if len(secondary_servers)==2:
+            chunk_file=os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
+        elif len(secondary_servers)==0:
+            chunk_file=chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}_replica.dat')
+
+        with open(chunk_file, 'a+') as f:
+            f.seek(0, os.SEEK_END)
+            current_size = f.tell()
+
+            if len(secondary_servers)==0 or current_size + len(content) > self.chunk_size :
+                remaining_space = self.chunk_size - current_size
+                f.write('%' * remaining_space)  # Pad with '%'
+                if len(secondary_servers)==2:
+                    self.send_padding_to_secondary(secondary_servers, chunk_id, remaining_space)
+                    response = {"status": "Insufficient Space", "message": "Need new chunk"}
+                elif len(secondary_servers)==0:
+                    response = {"status": "Replica Padded", "message": "replica padded"}                                  
+                
+            else:
+                f.write(content)
+                if len(secondary_servers)==2:
+                    self.replicate_append_to_secondary(secondary_servers, chunk_id, content)
+
+                response = {"status": "OK", "message": "Data appended"}
+
+        client_socket.send(json.dumps(response).encode())
+
+    def send_padding_to_secondary(self,replicas,chunk_id,padding_length):
+        if not replicas:
+            return
+
+        for server in replicas:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(tuple(server))
+                request = {
+                    "type": "APPEND",
+                    "chunk_id": chunk_id,
+                    "content": '%' * padding_length,
+                    "secondary_servers": []
+                }
+                s.send(json.dumps(request).encode())
+                s.recv(1024)
+    
+    def replicate_append_to_secondary(self,replicas,chunk_id,content):
+        if not replicas:
+            return
+
+        for server in replicas:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(tuple(server))
+                request = {
+                    "type": "APPEND",
+                    "chunk_id": chunk_id,
+                    "content": content,
+                    "secondary_servers": []
+                }
+                s.send(json.dumps(request).encode())
+                s.recv(1024)
+
 
     def handle_read(self, client_socket, chunk_id):
         chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
