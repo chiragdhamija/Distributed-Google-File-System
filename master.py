@@ -2,9 +2,10 @@ import os
 import socket
 import threading
 import json
+import random
 
 class MasterServer:
-    def __init__(self, host, port, root_dir='master_metadata', chunk_size=64 * 1024 * 1024):
+    def __init__(self, host, port, root_dir='master_metadata', chunk_size=12):
         self.host = host
         self.port = port
         self.root_dir = root_dir
@@ -87,36 +88,37 @@ class MasterServer:
             if len(self.chunk_servers) < self.replication_factor:
                 return {"status": "Error", "message": "Not enough chunk servers available"}
 
-            # Assign chunks to servers
-            chunk_servers = self.chunk_servers[:self.replication_factor]
-            primary_server = chunk_servers[0]
-
-            # Prepare chunking and replication
             chunk_ids = []
+            primary_servers = []
             for i, chunk_data in enumerate(chunks):
                 chunk_id = self.next_chunk_id
                 self.next_chunk_id += 1
 
+                # Randomly select a primary chunk server and two other replicas
+                random.shuffle(self.chunk_servers)
+                primary_server = self.chunk_servers[0]
+                secondary_servers = self.chunk_servers[1:3]
+
                 # Save chunk locations
-                self.chunk_locations[chunk_id] = chunk_servers
+                self.chunk_locations[chunk_id] = [primary_server] + secondary_servers
                 self.chunk_leases[chunk_id] = primary_server
                 self.file_to_chunks[filename].append(chunk_id)
 
                 # Distribute chunks across the chunk servers
-                print(f"Assigned chunk {chunk_id} to primary {primary_server}, replicas: {chunk_servers[1:]}")
+                print(f"Assigned chunk {chunk_id} to primary {primary_server}, replicas: {secondary_servers}")
                 self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
                 self.save_metadata(self.chunk_locations, 'chunk_locations.json')
 
                 chunk_ids.append(chunk_id)
+                primary_servers.append(primary_server)
 
             # Now send the response including 'primary_servers' key
             return {
                 "status": "OK",
                 "chunk_ids": chunk_ids,
-                "primary_servers": [primary_server] * len(chunk_ids),  # Use the same primary for all chunks
-                "locations": [chunk_servers] * len(chunk_ids)  # Locations for each chunk
+                "primary_servers": primary_servers,  # Different primary for each chunk
+                "locations": [self.chunk_locations[chunk_id] for chunk_id in chunk_ids]  # Locations for each chunk
             }
-
 
 
     def split_into_chunks(self, data):

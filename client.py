@@ -29,7 +29,7 @@ class Client:
         # Write operation in Client
     def write(self, filename, data):
         print("Writing data to file:", filename)
-        chunk_size = 64 * 1024 * 1024  # 64 MB per chunk
+        chunk_size = 12   # 64 MB per chunk
         chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
         request = {"type": "WRITE", "filename": filename, "data": data}
@@ -46,11 +46,12 @@ class Client:
         # Write each chunk to the primary server and replicate to secondary servers
         for idx, chunk_data in enumerate(chunks):
             chunk_id = response["chunk_ids"][idx]  # Get the chunk ID from the response
-            primary_server = response["primary_servers"][idx]
+            primary_server = response["primary_servers"][idx]  # Select primary server for this chunk
             servers = response["locations"][idx]  # List of servers for replication
 
             # Send chunk data to the primary chunk server
             self.send_chunk_data(tuple(primary_server), chunk_id, chunk_data, servers)
+
 
 
     def retrieve_chunk_data(self, server, chunk_id):

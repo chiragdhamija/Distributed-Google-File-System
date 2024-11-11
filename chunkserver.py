@@ -54,7 +54,8 @@ class ChunkServer:
                 response = {"status": "OK", "content": content}
         else:
             response = {"status": "Error", "message": "Chunk not found"}
-
+        
+        print(f"here {response}")
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
 
