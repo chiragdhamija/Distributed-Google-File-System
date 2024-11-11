@@ -11,7 +11,7 @@ class MasterServer:
         self.root_dir = root_dir
         self.replication_factor = 3
         self.chunk_servers = []  # List of chunk server addresses
-        self.next_chunk_id = 1
+        self.next_chunk_id = 0
         self.lock = threading.Lock()
         self.chunk_size = chunk_size
 
@@ -83,6 +83,12 @@ class MasterServer:
 
             # Split file into chunks of 64MB
             chunks = self.split_into_chunks(data)
+            
+            # Remove old chunks associated with the file from metadata and servers
+            if filename in self.file_to_chunks:
+                old_chunk_ids = self.file_to_chunks[filename]
+                self.delete_old_chunks(old_chunk_ids)
+
             self.file_to_chunks[filename] = []
 
             if len(self.chunk_servers) < self.replication_factor:
@@ -112,13 +118,45 @@ class MasterServer:
                 chunk_ids.append(chunk_id)
                 primary_servers.append(primary_server)
 
-            # Now send the response including 'primary_servers' key
             return {
                 "status": "OK",
                 "chunk_ids": chunk_ids,
-                "primary_servers": primary_servers,  # Different primary for each chunk
-                "locations": [self.chunk_locations[chunk_id] for chunk_id in chunk_ids]  # Locations for each chunk
+                "primary_servers": primary_servers,
+                "locations": [self.chunk_locations[chunk_id] for chunk_id in chunk_ids]
             }
+
+    def delete_old_chunks(self, old_chunk_ids):
+        """Delete old chunks and their replicas from chunk locations and servers."""
+        print(old_chunk_ids,self.chunk_locations)
+        for i in range(len(old_chunk_ids)):
+            print(f"here first {i} {old_chunk_ids[i]}")
+            chunk_id=old_chunk_ids[i]
+            servers = self.chunk_locations.pop(chunk_id)
+            self.remove_chunk_from_servers(chunk_id, servers)
+                    
+        print(self.chunk_locations)
+        
+        # Save updated mappings
+        self.save_metadata(self.chunk_locations, 'chunk_locations.json')
+        self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
+
+    def remove_chunk_from_servers(self, chunk_id, servers):
+        """Delete chunk data from primary and replica servers."""
+        print(f"here second {chunk_id}")
+        for server in servers:
+            if isinstance(server, list):  # In case server is incorrectly stored as a list
+                server = tuple(server)  # Convert to tuple
+            
+            # Connect to each server to delete chunk file
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(server)  # server should be a tuple (host, port)
+                request = {
+                    "type": "DELETE_CHUNK",
+                    "chunk_id": chunk_id
+                }
+                s.send(json.dumps(request).encode())
+                response = json.loads(s.recv(1024))
+                print(f"Deleted chunk {chunk_id} from server {server}: {response['status']}")
 
 
     def split_into_chunks(self, data):

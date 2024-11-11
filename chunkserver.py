@@ -45,6 +45,9 @@ class ChunkServer:
             content = data['content']
             replicas = data['replicas']
             self.handle_write(client_socket, chunk_id, content, replicas)
+        elif request == 'DELETE_CHUNK':
+            chunk_id = data['chunk_id']
+            self.handle_delete_chunk(client_socket, chunk_id)
 
     def handle_read(self, client_socket, chunk_id):
         chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
@@ -103,6 +106,32 @@ class ChunkServer:
             }
             s.send(json.dumps(ack_request).encode())
             s.recv(1024)  # Await acknowledgment of write completion
+
+    def handle_delete_chunk(self, client_socket, chunk_id):
+        """Delete chunk data from the chunk server."""
+        chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
+        chunk_replica_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}_replica.dat')
+
+        deleted = False
+
+        if os.path.exists(chunk_file):
+            os.remove(chunk_file)
+            deleted = True
+            print(f"Deleted chunk {chunk_id} from {self.storage_dir}")
+        
+        if os.path.exists(chunk_replica_file):
+            os.remove(chunk_replica_file)
+            deleted = True
+            print(f"Deleted replica chunk {chunk_id} from {self.storage_dir}")
+        
+        # Send response back to the client
+        if deleted:
+            response = {"status": "OK", "message": f"Chunk {chunk_id} deleted"}
+        else:
+            response = {"status": "Error", "message": f"Chunk {chunk_id} not found"}
+
+        client_socket.send(json.dumps(response).encode())
+        client_socket.close()
 
 if __name__ == "__main__":
     chunkserver_host = '127.0.0.1'
