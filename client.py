@@ -6,6 +6,21 @@ class Client:
     def __init__(self, master_host, master_port):
         self.master_host = master_host
         self.master_port = master_port
+    
+    def delete(self, filename):
+        print("Deleting file: ",filename)
+        request = {"type": "DELETE", "filename": filename}
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
+
+        # Check if the response contains an error message
+        if response.get("status") != "OK":
+            print("Error:", response.get("message", "Unknown error"))
+            return
+        print(f"{response.get('message')}")
 
     def read(self, filename):
         print("Reading file:", filename)
@@ -180,5 +195,7 @@ if __name__ == "__main__":
         print("Append Selected")
         data=input("Please enter that you want to append: ")
         client.record_append(filename,data)
+    elif operation == "delete" :
+        client.delete(filename)
     else:
         print("Invalid operation. Use 'read' or 'write'.")

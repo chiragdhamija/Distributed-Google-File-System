@@ -59,10 +59,32 @@ class MasterServer:
             response = self.handle_record_append(data['filename'], data.get('data'))
         elif request == 'RECORD_APPEND_RETRY':
             response=self.retrying_append(data['filename'], data.get('data'))
+        elif request == 'DELETE':
+            response=self.handle_delete(data['filename'])
 
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
     
+    def handle_delete(self, filename):
+        """Handle deletion of a file and its chunks from the distributed system."""
+        if filename not in self.file_to_chunks:
+            return {"status": "File Not Found"}
+
+        # Retrieve the chunk IDs associated with the file
+        chunk_ids = self.file_to_chunks.pop(filename, [])
+        
+        # Delete the associated chunks from chunk locations and servers
+        self.delete_old_chunks(chunk_ids)
+        
+        # Save updated metadata
+        self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
+        self.save_metadata(self.chunk_locations, 'chunk_locations.json')
+        
+        return {"status": "OK", "message": f"File '{filename}' and associated chunks deleted"}
+
+        
+
+
     def retrying_append(self,filename,data):
         if not data:
             return {"status": "Error", "message": "No data provided for writing"}
@@ -205,12 +227,10 @@ class MasterServer:
         """Delete old chunks and their replicas from chunk locations and servers."""
         print(old_chunk_ids,self.chunk_locations)
         for i in range(len(old_chunk_ids)):
-            print(f"here first {i} {old_chunk_ids[i]}")
             chunk_id=old_chunk_ids[i]
             servers = self.chunk_locations.pop(chunk_id)
             self.remove_chunk_from_servers(chunk_id, servers)
                     
-        print(self.chunk_locations)
         
         # Save updated mappings
         self.save_metadata(self.chunk_locations, 'chunk_locations.json')
@@ -218,7 +238,6 @@ class MasterServer:
 
     def remove_chunk_from_servers(self, chunk_id, servers):
         """Delete chunk data from primary and replica servers."""
-        print(f"here second {chunk_id}")
         for server in servers:
             if isinstance(server, list):  # In case server is incorrectly stored as a list
                 server = tuple(server)  # Convert to tuple
