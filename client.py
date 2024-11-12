@@ -175,7 +175,7 @@ class Client:
 
             # Send chunk data to the primary chunk server
             self.send_chunk_data(tuple(primary_server), chunk_id, chunk_data, servers)
-            
+
     def upload(self, filename, filepath):
         print("Uploading file:", filepath)
         chunk_size = 12
@@ -193,7 +193,21 @@ class Client:
                     print("Appending subsequent chunk.")
                     self.record_append(filename, data)
 
-                data = file.read(chunk_size)    
+                data = file.read(chunk_size)
+    def rename(self, old_filename, new_filename):
+        print(f"Renaming file from {old_filename} to {new_filename}")
+        request = {"type": "RENAME", "old_filename": old_filename, "new_filename": new_filename}
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
+
+        if response.get("status") != "OK":
+            print("Error:", response.get("message", "Unknown error"))
+        else:
+            print(f"{response.get('message')}")
+
 
 # Example usage
 if __name__ == "__main__":
@@ -218,5 +232,8 @@ if __name__ == "__main__":
     elif operation == "upload":
         filepath = input("Please enter the path of the file to upload: ")
         client.upload(filename, filepath)
+    elif operation == "rename":
+        new_filename = input("Enter the new filename: ")
+        client.rename(filename, new_filename)
     else:
-        print("Invalid operation. Use 'read' or 'write'.")
+        print("Invalid operation")

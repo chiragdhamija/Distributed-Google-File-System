@@ -61,9 +61,30 @@ class MasterServer:
             response=self.retrying_append(data['filename'], data.get('data'))
         elif request == 'DELETE':
             response=self.handle_delete(data['filename'])
+        elif request == 'RENAME':
+            response = self.handle_rename(data['old_filename'], data['new_filename'])
+
 
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+    
+    def handle_rename(self, old_filename, new_filename):
+        # Check if the old filename exists
+        if old_filename not in self.file_to_chunks:
+            return {"status": "Error", "message": f"File '{old_filename}' not found"}
+
+        # Check if the new filename already exists
+        if new_filename in self.file_to_chunks:
+            return {"status": "Error", "message": f"File '{new_filename}' already exists"}
+
+        # Perform the renaming in the file metadata
+        self.file_to_chunks[new_filename] = self.file_to_chunks.pop(old_filename)
+
+        # Save the updated metadata to disk
+        self.save_metadata(self.file_to_chunks, 'file_to_chunks.json')
+
+        return {"status": "OK", "message": f"File '{old_filename}' renamed to '{new_filename}'"}
+
     
     def handle_delete(self, filename):
         """Handle deletion of a file and its chunks from the distributed system."""
