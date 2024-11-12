@@ -19,7 +19,7 @@ class MasterServer:
         os.makedirs(self.root_dir, exist_ok=True)
         self.file_to_chunks = self.load_metadata('file_to_chunks.json')
         self.chunk_locations = self.load_metadata('chunk_locations.json')
-        self.chunk_leases = {}
+        
 
     def load_metadata(self, filename):
         filepath = os.path.join(self.root_dir, filename)
@@ -136,7 +136,7 @@ class MasterServer:
 
                 # Save chunk locations
                 self.chunk_locations[chunk_id] = [primary_server] + secondary_servers
-                self.chunk_leases[chunk_id] = primary_server
+                
                 self.file_to_chunks[filename].append(chunk_id)
 
                 # Distribute chunks across the chunk servers
@@ -226,7 +226,6 @@ class MasterServer:
 
                 # Save chunk locations
                 self.chunk_locations[chunk_id] = [primary_server] + secondary_servers
-                self.chunk_leases[chunk_id] = primary_server
                 self.file_to_chunks[filename].append(chunk_id)
 
                 # Distribute chunks across the chunk servers

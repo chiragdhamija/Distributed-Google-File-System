@@ -6,6 +6,7 @@ class Client:
     def __init__(self, master_host, master_port):
         self.master_host = master_host
         self.master_port = master_port
+        self.chunk_size=12
     
     def delete(self, filename):
         print("Deleting file: ",filename)
@@ -76,8 +77,8 @@ class Client:
         # Write operation in Client
     def write(self, filename, data):
         print("Writing data to file:", filename)
-        chunk_size = 12   # 64 MB per chunk
-        chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+           # 64 MB per chunk
+        chunks = [data[i:i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
 
         request = {"type": "WRITE", "filename": filename, "data": data}
 
@@ -153,8 +154,8 @@ class Client:
     
     def retry_append(self,filename,data):
         print("Retrying append data to file:", filename)
-        chunk_size = 12   # 64 MB per chunk
-        chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+           # 64 MB per chunk
+        chunks = [data[i:i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
 
         request = {"type": "RECORD_APPEND_RETRY", "filename": filename, "data": data}
 
@@ -178,10 +179,10 @@ class Client:
 
     def upload(self, filename, filepath):
         print("Uploading file:", filepath)
-        chunk_size = 12
+        
 
         with open(filepath, 'r') as file:
-            data = file.read(chunk_size)
+            data = file.read(self.chunk_size)
             is_first_chunk = True
 
             while data:
@@ -193,7 +194,7 @@ class Client:
                     print("Appending subsequent chunk.")
                     self.record_append(filename, data)
 
-                data = file.read(chunk_size)
+                data = file.read(self.chunk_size)
     def rename(self, old_filename, new_filename):
         print(f"Renaming file from {old_filename} to {new_filename}")
         request = {"type": "RENAME", "old_filename": old_filename, "new_filename": new_filename}
