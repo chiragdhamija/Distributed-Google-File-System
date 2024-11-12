@@ -175,7 +175,25 @@ class Client:
 
             # Send chunk data to the primary chunk server
             self.send_chunk_data(tuple(primary_server), chunk_id, chunk_data, servers)
-        
+            
+    def upload(self, filename, filepath):
+        print("Uploading file:", filepath)
+        chunk_size = 12
+
+        with open(filepath, 'r') as file:
+            data = file.read(chunk_size)
+            is_first_chunk = True
+
+            while data:
+                if is_first_chunk:
+                    print("Performing initial write for first chunk.")
+                    self.write(filename, data)
+                    is_first_chunk = False
+                else:
+                    print("Appending subsequent chunk.")
+                    self.record_append(filename, data)
+
+                data = file.read(chunk_size)    
 
 # Example usage
 if __name__ == "__main__":
@@ -197,5 +215,8 @@ if __name__ == "__main__":
         client.record_append(filename,data)
     elif operation == "delete" :
         client.delete(filename)
+    elif operation == "upload":
+        filepath = input("Please enter the path of the file to upload: ")
+        client.upload(filename, filepath)
     else:
         print("Invalid operation. Use 'read' or 'write'.")
