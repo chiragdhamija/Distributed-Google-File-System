@@ -118,17 +118,29 @@ class ChunkServer:
 
 
     def handle_read(self, client_socket, chunk_id):
-        chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
-        if os.path.exists(chunk_file):
-            with open(chunk_file, 'r') as f:
+        # Paths for primary chunk and replica chunk
+        primary_chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
+        replica_chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}_replica.dat')
+        
+        # Try to read the primary chunk file first
+        if os.path.exists(primary_chunk_file):
+            with open(primary_chunk_file, 'r') as f:
+                content = f.read()
+                response = {"status": "OK", "content": content}
+        # If primary chunk is not found, try the replica
+        elif os.path.exists(replica_chunk_file):
+            with open(replica_chunk_file, 'r') as f:
                 content = f.read()
                 response = {"status": "OK", "content": content}
         else:
+            # Neither primary nor replica chunk file was found
             response = {"status": "Error", "message": "Chunk not found"}
         
+        # Send the response to the client
         print(f"here {response}")
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+
 
     def handle_write(self, client_socket, chunk_id, content, replicas):
         # For the primary server, store as chunk_{chunk_id}.dat

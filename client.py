@@ -22,9 +22,41 @@ class Client:
             return
 
         print("File found, retrieving chunks...")
-        # Fetch and print each chunk from its primary server
-        for chunk_id, primary_server in zip(response["chunks"], response["locations"]):
-            self.retrieve_chunk_data(primary_server, chunk_id)
+        # Fetch and print each chunk from its primary and replica servers
+        for chunk_id, servers in zip(response["chunks"], response["locations"]):
+            self.retrieve_chunk_data(chunk_id, servers)
+        
+
+    def retrieve_chunk_data(self, chunk_id, servers):
+        # Try to connect to each server (primary first, then replicas)
+        content = None
+        for server in servers:
+            try:
+                # Ensure 'server' is a tuple (host, port) before attempting connection
+                if isinstance(server, list):
+                    server = tuple(server)  # Convert list to tuple if necessary
+                
+                print(f"Attempting to retrieve chunk {chunk_id} from server {server}")
+
+                # Create a socket to request chunk data from the server
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as chunk_socket:
+                    chunk_socket.connect(server)  # Connect to the server
+                    request = {"type": "READ", "chunk_id": chunk_id}
+                    chunk_socket.send(json.dumps(request).encode())
+
+                    # Receive the response from the chunk server
+                    response = json.loads(chunk_socket.recv(1024))
+                    if response.get("status") == "OK":
+                        content = response.get("content", "").rstrip('%')
+                        print(f"Content of chunk {chunk_id} (without padding): {content}")
+                        break  # Exit the loop once data is successfully retrieved
+
+            except (ConnectionRefusedError, socket.timeout):
+                print(f"Failed to connect to server {server} for chunk {chunk_id}. Trying next server...")
+
+        if content is None:
+            print(f"Error: Unable to retrieve chunk {chunk_id} from any available server.")
+
 
         # Write operation in Client
     def write(self, filename, data):
@@ -54,28 +86,7 @@ class Client:
 
 
 
-    def retrieve_chunk_data(self, server, chunk_id):
-    # Ensure 'server' is a tuple (host, port) before attempting connection
-        if isinstance(server, list):
-            server = tuple(server)  # Convert list to tuple if necessary
-        
-        print(f"Retrieving chunk {chunk_id} from primary server {server}")
-
-        # Create a socket to request chunk data from the primary chunk server
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as chunk_socket:
-            chunk_socket.connect(server)  # Connect to the primary server
-            request = {"type": "READ", "chunk_id": chunk_id}
-            chunk_socket.send(json.dumps(request).encode())
-
-            # Receive the response from the chunk server
-            response = json.loads(chunk_socket.recv(1024))
-            content = response.get("content", "")
-
-            # Remove any trailing '%' padding from the content
-            cleaned_content = content.rstrip('%')
-
-            # Print the cleaned content of the chunk
-            print(f"Content of chunk {chunk_id} (without padding): {cleaned_content}")
+    
 
             
     def send_chunk_data(self, primary_server, chunk_id, data, servers):
