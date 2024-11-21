@@ -63,6 +63,8 @@ class MasterServer:
             response=self.handle_delete(data['filename'])
         elif request == 'RENAME':
             response = self.handle_rename(data['old_filename'], data['new_filename'])
+        elif request == 'WRITE_OFFSET':
+            response = self.handle_write_offset(data['filename'],data['data'],data['offset'])
 
 
         client_socket.send(json.dumps(response).encode())
@@ -278,6 +280,73 @@ class MasterServer:
         """Split data into chunks of size self.chunk_size"""
         chunks = [data[i:i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
         return chunks
+    
+    def handle_write_offset(self, filename, data, offset):
+        if filename not in self.file_to_chunks:
+            return {"status": "Error", "message": "File not found"}
+
+        # Retrieve existing chunks for the file
+        chunk_ids = self.file_to_chunks[filename]
+        total_data_written = 0
+        updated_chunk_info = []
+
+        # Calculate the chunk and position within the chunk for the offset
+        chunk_index = offset // self.chunk_size
+        chunk_offset = offset % self.chunk_size
+
+        # Remove chunks beyond the offset
+        chunks_to_delete = chunk_ids[chunk_index + 1:]
+        self.delete_old_chunks(chunks_to_delete)
+        chunk_ids = chunk_ids[:chunk_index + 1]
+
+        # Handle writing starting at the specified offset
+        for idx, chunk_id in enumerate(chunk_ids[chunk_index:], start=chunk_index):
+            data_to_write = data[total_data_written:total_data_written + self.chunk_size - chunk_offset]
+            total_data_written += len(data_to_write)
+
+            if not data_to_write:
+                break
+
+            # Add updated chunk details
+            updated_chunk_info.append({
+                "chunk_id": chunk_id,
+                "chunk_offset": chunk_offset if idx == chunk_index else 0,
+                "primary_server": self.chunk_locations[chunk_id][0],
+                "servers": self.chunk_locations[chunk_id],
+            })
+            chunk_offset = 0  # Reset offset after the first chunk
+
+        # Allocate new chunks if needed
+        while total_data_written < len(data):
+            new_chunk_id = self.next_chunk_id
+            self.next_chunk_id += 1
+
+            # primary_server = random.choice(self.chunk_servers)
+            random.shuffle(self.chunk_servers)
+            primary_server = self.chunk_servers[0]
+            secondary_servers = self.chunk_servers[1:3]
+            self.chunk_locations[new_chunk_id] = [primary_server]+secondary_servers
+            self.file_to_chunks[filename].append(new_chunk_id)
+            chunk_ids.append(new_chunk_id)
+            # Distribute chunks across the chunk servers
+            print(f"Assigned chunk {new_chunk_id} to primary {primary_server}, replicas: {secondary_servers}")
+
+            data_to_write = data[total_data_written:total_data_written + self.chunk_size]
+            total_data_written += len(data_to_write)
+
+            updated_chunk_info.append({
+                "chunk_id": new_chunk_id,
+                "chunk_offset": 0,
+                "primary_server": self.chunk_locations[new_chunk_id][0],
+                "servers": self.chunk_locations[new_chunk_id]
+            })
+
+        # Save metadata
+        self.save_metadata(self.file_to_chunks, "file_to_chunks.json")
+        self.save_metadata(self.chunk_locations, "chunk_locations.json")
+
+        return {"status": "OK", "chunk_info": updated_chunk_info}
+
 
 if __name__ == "__main__":
     master_host = '127.0.0.1'

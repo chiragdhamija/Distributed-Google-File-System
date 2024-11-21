@@ -54,6 +54,13 @@ class ChunkServer:
             content = data['content']
             secondary_servers = data.get('secondary_servers', [])
             self.handle_append(client_socket, chunk_id, content, secondary_servers)
+        elif request == 'WRITE_OFFSET':
+            chunk_id = data['chunk_id']
+            content = data['content']
+            chunk_offset = data['chunk_offset']
+            replicas = data['replicas']
+            self.handle_write_offset(client_socket, chunk_id, content, chunk_offset, replicas)
+
     
     def handle_append(self, client_socket, chunk_id, content, secondary_servers):
 
@@ -159,6 +166,30 @@ class ChunkServer:
         # Replicate to secondary servers if on the primary
         if len(replicas) == 3:
             self.replicate_to_secondary_servers(chunk_id, content, replicas)
+    
+    def handle_write_offset(self, client_socket, chunk_id, content, chunk_offset, replicas):
+        if len(replicas) == 3:  # Primary server
+            chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
+        elif len(replicas)==0:  # For secondary (replica) servers, store as chunk_{chunk_id}_replica.dat
+            chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}_replica.dat')
+        # Read existing data and overwrite from the offset
+        print(f"here {len(replicas)}")
+        existing_data = ""
+        if os.path.exists(chunk_file):
+            with open(chunk_file, 'r') as f:
+                existing_data = f.read()
+
+        # Combine existing data with new content
+        updated_data = existing_data[:chunk_offset] + content
+        with open(chunk_file, 'w') as f:
+            f.write(updated_data)
+
+        # Acknowledge the client
+        response = {"status": "OK", "message": "Offset write completed"}
+        client_socket.send(json.dumps(response).encode())
+
+        if len(replicas) == 3:
+            self.replicate_to_secondary_servers(chunk_id,updated_data, replicas)
 
     def replicate_to_secondary_servers(self, chunk_id, content, replicas):
         if not replicas:

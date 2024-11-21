@@ -99,6 +99,39 @@ class Client:
 
             # Send chunk data to the primary chunk server
             self.send_chunk_data(tuple(primary_server), chunk_id, chunk_data, servers)
+    
+    def write_offset(self, filename, data, offset):
+        print(f"Writing data at offset {offset} in file {filename}")
+        request = {"type": "WRITE_OFFSET", "filename": filename, "data": data, "offset": offset}
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.master_host, self.master_port))
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
+
+        if response.get("status") != "OK":
+            print("Error:", response.get("message", "Unknown error"))
+            return
+
+        # Write each chunk starting from the offset
+        chunk_info = response["chunk_info"]
+        data_offset = 0
+        print("here")
+        print(chunk_info)
+        for chunk in chunk_info:
+            chunk_id = chunk["chunk_id"]
+            chunk_offset = chunk["chunk_offset"]
+            primary_server = tuple(chunk["primary_server"])
+            replicas = [tuple(replica) for replica in chunk["servers"]]
+
+            # Calculate data for this chunk
+            write_data = data[data_offset:data_offset + self.chunk_size - chunk_offset]
+            data_offset += len(write_data)
+            print(f"here write data is {write_data}: and chunk_offset is {chunk_offset}: ")
+            # Send the data to the primary chunk server with the offset
+            self.send_chunk_data_offset(primary_server, chunk_id, write_data, chunk_offset, replicas)
+        
+        print("Write offset operation completed successfully.")
 
 
 
@@ -114,6 +147,29 @@ class Client:
             s.send(json.dumps(request).encode())
             response = json.loads(s.recv(1024))
             print(f"Write response from primary server: {response}")
+    
+    
+    
+    def send_chunk_data_offset(self, server, chunk_id, data, chunk_offset, replicas):
+            # Prepare the request to send data to the primary server
+        request = {
+            "type": "WRITE_OFFSET",
+            "chunk_id": chunk_id,
+            "content": data,
+            "chunk_offset": chunk_offset,  # Include the chunk_offset
+            "replicas": replicas  # Include replicas for replication
+        }
+
+        # Send the data to the primary server
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(server)
+            s.send(json.dumps(request).encode())
+            response = json.loads(s.recv(1024))
+
+            if response.get("status") == "OK":
+                print(f"Data written successfully to chunk {chunk_id}")
+            else:
+                print(f"Failed to write data to chunk {chunk_id}: {response.get('message', 'Unknown error')}")
 
     def record_append(self,filename,data):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -208,6 +264,11 @@ class Client:
             print("Error:", response.get("message", "Unknown error"))
         else:
             print(f"{response.get('message')}")
+    
+    
+
+
+
 
 
 # Example usage
@@ -236,5 +297,9 @@ if __name__ == "__main__":
     elif operation == "rename":
         new_filename = input("Enter the new filename: ")
         client.rename(filename, new_filename)
+    elif operation == "write_offset":
+        data=input("Please enter the data that you want to write at the offset: ")
+        offset=int(input("Please enter the offset : "))
+        client.write_offset(filename,data,offset)
     else:
         print("Invalid operation")
