@@ -342,6 +342,7 @@ class MasterServer:
             })
 
         # Save metadata
+        self.file_to_chunks[filename] = chunk_ids
         self.save_metadata(self.file_to_chunks, "file_to_chunks.json")
         self.save_metadata(self.chunk_locations, "chunk_locations.json")
 
