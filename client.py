@@ -1,6 +1,7 @@
 import socket
 import json
 import sys
+import os
 
 class Client:
     def __init__(self, master_host, master_port):
@@ -38,20 +39,23 @@ class Client:
             return
 
         print("File found, retrieving chunks...")
-        # Fetch and print each chunk from its primary and replica servers
-        for chunk_id, servers in zip(response["chunks"], response["locations"]):
-            self.retrieve_chunk_data(chunk_id, servers)
+        download_dir = "client_files"
+        os.makedirs(download_dir, exist_ok=True)
+        
+        # Open a file in write mode to store the content of the chunks
+        with open(f"{download_dir}/{filename}", "wb") as file:
+            for chunk_id, servers in zip(response["chunks"], response["locations"]):
+                self.retrieve_chunk_data(chunk_id, servers, file)
         
 
-    def retrieve_chunk_data(self, chunk_id, servers):
-        # Try to connect to each server (primary first, then replicas)
+    def retrieve_chunk_data(self, chunk_id, servers, file):
         content = None
         for server in servers:
             try:
                 # Ensure 'server' is a tuple (host, port) before attempting connection
                 if isinstance(server, list):
                     server = tuple(server)  # Convert list to tuple if necessary
-                
+
                 print(f"Attempting to retrieve chunk {chunk_id} from server {server}")
 
                 # Create a socket to request chunk data from the server
@@ -72,6 +76,9 @@ class Client:
 
         if content is None:
             print(f"Error: Unable to retrieve chunk {chunk_id} from any available server.")
+        else:
+            # Write the content to the file
+            file.write(content.encode('utf-8'))  # Ensure encoding when writing text data
 
 
         # Write operation in Client

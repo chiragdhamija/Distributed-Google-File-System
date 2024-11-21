@@ -1,5 +1,4 @@
 # Pending Tasks
-- Download 
 - heartbeat
 - lease grant
 - buffer error

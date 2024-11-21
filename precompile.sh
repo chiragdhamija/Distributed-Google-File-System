@@ -8,6 +8,13 @@ else
   echo "master_metadata/ not found"
 fi
 
+if [ -d "client_files" ]; then
+  rm -rf client_files
+  echo "Deleted client_files"
+else
+  echo "client_files/ not found"
+fi
+
 # Deleting directories that start with chunk_storage
 for dir in chunk_storage*/; do
   if [ -d "$dir" ]; then
