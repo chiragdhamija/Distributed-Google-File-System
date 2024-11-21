@@ -1,11 +1,11 @@
 # Pending Tasks
-- Write offset (if offset greater than file size)
 - Download 
 - heartbeat
 - lease grant
 - buffer error
 - dynamic replication
 - changing names of commands
+- Can update if and only if primary servers are alive 
 
 
 # How to run the code

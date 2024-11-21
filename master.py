@@ -281,6 +281,56 @@ class MasterServer:
         chunks = [data[i:i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
         return chunks
     
+    def get_last_chunk_size(self, filename):
+        # Retrieve the chunk IDs for the file
+        chunk_ids = self.file_to_chunks.get(filename, [])
+        
+        if not chunk_ids:
+            return {"status": "Error", "message": "File has no chunks"}
+
+        # Get the last chunk ID
+        last_chunk_id = chunk_ids[-1]
+
+        # Retrieve the primary and secondary servers for the last chunk
+        chunk_servers = self.chunk_locations.get(last_chunk_id, [])
+        
+        if not chunk_servers:
+            return {"status": "Error", "message": "No servers for the last chunk"}
+
+        # Try each server (primary first, then secondary servers) to fetch chunk size
+        content = None
+        for server in chunk_servers:
+            try:
+                # Ensure 'server' is a tuple (host, port) before attempting connection
+                if isinstance(server, list):
+                    server = tuple(server)  # Convert list to tuple if necessary
+                
+                print(f"Attempting to retrieve chunk {last_chunk_id} size from server {server}")
+
+                # Create a socket to request chunk size from the server
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as chunk_socket:
+                    chunk_socket.connect(server)  # Connect to the server
+                    request = {"type": "GET_CHUNK_SIZE", "chunk_id": last_chunk_id}
+                    chunk_socket.send(json.dumps(request).encode())
+
+                    # Receive the response from the chunk server
+                    response = json.loads(chunk_socket.recv(1024))
+                    if response.get("status") == "OK":
+                        chunk_size = response.get("chunk_size")
+                        print(f"Chunk size for chunk {last_chunk_id}: {chunk_size}")
+                        content = chunk_size
+                        break  # Exit the loop once chunk size is successfully retrieved
+
+            except (ConnectionRefusedError, socket.timeout):
+                print(f"Failed to connect to server {server} for chunk {last_chunk_id}. Trying next server...")
+
+        if content is None:
+            print(f"Error: Unable to retrieve chunk size for chunk {last_chunk_id} from any available server.")
+            return {"status": "Error", "message": "Unable to retrieve chunk size from any available server."}
+
+        return {"status": "OK", "chunk_size": content}
+
+    
     def handle_write_offset(self, filename, data, offset):
         if filename not in self.file_to_chunks:
             return {"status": "Error", "message": "File not found"}
@@ -292,9 +342,23 @@ class MasterServer:
 
         # Calculate the chunk and position within the chunk for the offset
         chunk_index = offset // self.chunk_size
+        
         chunk_offset = offset % self.chunk_size
+        
+        
+        last_chunk_size_response = self.get_last_chunk_size(filename)
+        if last_chunk_size_response["status"] != "OK":
+            return last_chunk_size_response  # Return the error response if size retrieval fails
 
+        last_chunk_size = last_chunk_size_response["chunk_size"]
+        
+        
+        if chunk_index >= len(chunk_ids):
+            # Adjust the chunk_index and chunk_offset to the end of the last chunk
+            chunk_index = len(chunk_ids) - 1
+            chunk_offset = last_chunk_size  # Start appending from the end of the last chunk
         # Remove chunks beyond the offset
+        
         chunks_to_delete = chunk_ids[chunk_index + 1:]
         self.delete_old_chunks(chunks_to_delete)
         chunk_ids = chunk_ids[:chunk_index + 1]

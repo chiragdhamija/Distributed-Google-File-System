@@ -60,7 +60,24 @@ class ChunkServer:
             chunk_offset = data['chunk_offset']
             replicas = data['replicas']
             self.handle_write_offset(client_socket, chunk_id, content, chunk_offset, replicas)
+        elif request == 'GET_CHUNK_SIZE':
+            chunk_id = data["chunk_id"]
+            self.get_chunk_size(client_socket,chunk_id)
+        
+    def get_chunk_size(self, client_socket,chunk_id):
 
+        primary_chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}.dat')
+        replica_chunk_file = os.path.join(self.storage_dir, f'chunk_{chunk_id}_replica.dat')
+        
+        if os.path.exists(primary_chunk_file):
+            chunk_size = os.path.getsize(primary_chunk_file)  # Get the size of the chunk file
+            response = {"status": "OK", "chunk_size": chunk_size}
+        elif os.path.exists(replica_chunk_file):
+            chunk_size = os.path.getsize(replica_chunk_file)  # Get the size of the chunk file
+            response = {"status": "OK", "chunk_size": chunk_size}
+        else:
+            response= {"status": "Error", "message": "Chunk file not found"}
+        client_socket.send(json.dumps(response).encode())
     
     def handle_append(self, client_socket, chunk_id, content, secondary_servers):
 
