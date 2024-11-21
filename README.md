@@ -1,3 +1,12 @@
+# Pending Tasks
+- Write offset (if offset greater than file size)
+- Download 
+- heartbeat
+- lease grant
+- buffer error
+- dynamic replication
+- changing names of commands
+
 
 # How to run the code
 - run the bash file precompile.sh

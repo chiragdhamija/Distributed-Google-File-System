@@ -159,13 +159,15 @@ class ChunkServer:
         with open(chunk_file, 'w') as f:
             f.write(content)
         
-        # Acknowledge the client that data was written
-        response = {"status": "OK", "message": "Chunk data written"}
-        client_socket.send(json.dumps(response).encode())
+        
 
         # Replicate to secondary servers if on the primary
         if len(replicas) == 3:
             self.replicate_to_secondary_servers(chunk_id, content, replicas)
+        
+        # Acknowledge the client that data was written
+        response = {"status": "OK", "message": "Chunk data written"}
+        client_socket.send(json.dumps(response).encode())
     
     def handle_write_offset(self, client_socket, chunk_id, content, chunk_offset, replicas):
         if len(replicas) == 3:  # Primary server
@@ -184,12 +186,14 @@ class ChunkServer:
         with open(chunk_file, 'w') as f:
             f.write(updated_data)
 
-        # Acknowledge the client
-        response = {"status": "OK", "message": "Offset write completed"}
-        client_socket.send(json.dumps(response).encode())
+        
 
         if len(replicas) == 3:
             self.replicate_to_secondary_servers(chunk_id,updated_data, replicas)
+        
+        # Acknowledge the client
+        response = {"status": "OK", "message": "Offset write completed"}
+        client_socket.send(json.dumps(response).encode())
 
     def replicate_to_secondary_servers(self, chunk_id, content, replicas):
         if not replicas:
@@ -207,16 +211,6 @@ class ChunkServer:
                 }
                 s.send(json.dumps(request).encode())
                 s.recv(1024)  # Await acknowledgment from secondary servers
-
-    def send_acknowledgment_to_primary(self, primary_server, chunk_id):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(tuple(primary_server))
-            ack_request = {
-                "type": "WRITE_ACK",
-                "chunk_id": chunk_id
-            }
-            s.send(json.dumps(ack_request).encode())
-            s.recv(1024)  # Await acknowledgment of write completion
 
     def handle_delete_chunk(self, client_socket, chunk_id):
         """Delete chunk data from the chunk server."""
