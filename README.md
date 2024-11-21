@@ -4,9 +4,11 @@
 - buffer error
 - dynamic replication
 - changing names of commands
-- Can update if and only if primary servers are alive 
+- Try to relax the assumptions
+- Basic file locking (multiple reads and single update)
 
-
+# Assumptions 
+- An update operation can be done if and only if the primary and secondary servers both are alive for the file
 # How to run the code
 - run the bash file precompile.sh
 - run the master server by running python3 master.py
