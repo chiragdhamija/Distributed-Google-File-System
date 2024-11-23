@@ -9,6 +9,11 @@
 - Report 
 - Presentation
 
+Dynamic Replication:
+- Call `record_chunk_access` in `master.py` at appropriate locations.
+- (Heartbeat) Get request data from servers, replicate most accessed if above threshold
+- (Heartbeat) If chunk server fails, replicate all files in chunk server.
+
 # Assumptions 
 - An update operation can be done if and only if the primary and secondary servers both are alive for the file
 # How to run the code

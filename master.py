@@ -14,7 +14,7 @@ class MasterServer:
         self.max_request_threshold = (
             2  # Requests server can handle within threshold_timeout
         )
-        self.threshold_timeout = 5  # seconds
+        self.threshold_timeout = 15  # seconds
         self.replication_factor = 3
         self.chunk_servers = []  # List of chunk server addresses
         self.next_chunk_id = 0
@@ -75,6 +75,7 @@ class MasterServer:
                 data["filename"], data["data"], data["offset"]
             )
 
+        # print(f"DEBUG: Sending response {response} for {response} to client {client_socket}")
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
 
@@ -84,42 +85,58 @@ class MasterServer:
         """
         if chunk_id not in self.chunk_locations:
             print(f"Chunk {chunk_id} not found")
-            return
+            return False
 
         # Retrieve the current chunk locations
         current_locations = self.chunk_locations[chunk_id]
+        # print(f"DEBUG: Current locations for chunk {chunk_id}: {current_locations}")
 
         # Randomly select a new replica server from the available chunk servers but not in chunk locations
-        available_servers = set(self.chunk_servers) - set(current_locations)
+        # available_servers = set(self.chunk_servers) - set(current_locations)
+        available_servers = []
+        for server in self.chunk_servers:
+            if server not in current_locations:
+                available_servers.append(server)
+
         if not available_servers:
             print("INC_REPL: No available servers to increase replication")
-            return
+            return False
         else:
-            possible_replica_servers = random.choice(list(available_servers))
+            possible_replica_servers = list(available_servers)
 
         success = False
         for server in current_locations:
             # Connect to each server to replicate chunk
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(server)
+                if isinstance(server, list):
+                    # server[1] += 1
+                    copy_server = server.copy()
+                    copy_server[1] += 1
+                    copy_server = tuple(copy_server)
+                s.connect(copy_server)
                 request = {
                     "type": "INCREASE_REPLICATION",
                     "chunk_id": chunk_id,
                     "available_servers": possible_replica_servers,
                 }
-                s.send(json.dumps(request).encode())
+                # print(f"DEBUG: Sending request {request} to server {server}")
+                s.sendall(json.dumps(request).encode())
+                # print(f"DEBUG: Sent request to server {server}")
                 response = json.loads(s.recv(1024))
+                # print(f"DEBUG: Received response {response} from server {server}")
                 if response.get("status") == "Error":
                     print(
                         f"Failed to increase replication for chunk {chunk_id} on server {server}: {response['message']}.\nTrying next server..."
                     )
                 elif response.get("status") == "OK":
                     success = True
+                    new_server_replicated = response.get("new_server")
                     print(
-                        f"Successfully increased replication for chunk {chunk_id} on server {server}.\nNew replica server: {response['server']}"
+                        f"Successfully increased replication for chunk {chunk_id} on server {server}.\nNew replica server: {new_server_replicated}"
                     )
-                    current_locations.append(response["server"])
+                    current_locations.append(new_server_replicated)
                     self.chunk_locations[chunk_id] = current_locations
+                    # print(f"DEBUG: Updated chunk locations: {self.chunk_locations}")
                     self.save_metadata(self.chunk_locations, "chunk_locations.json")
                     break
                 else:
@@ -129,10 +146,10 @@ class MasterServer:
 
         if not success:
             print("INC_REPL: Failed to increase replication for chunk {chunk_id}")
-            return
+            return False
         else:
             print(f"INC_REPL: Successfully increased replication for chunk {chunk_id}")
-            return
+            return True
 
     def handle_rename(self, old_filename, new_filename):
         # Check if the old filename exists
@@ -267,8 +284,12 @@ class MasterServer:
         locations = []
         for chunk in chunks:
             # Retrieve all servers (primary and replicas) for the chunk
+            self.record_chunk_access(chunk)
+            # print(f"DEBUG: Recorded access for chunk {chunk}")
             chunk_servers = self.chunk_locations.get(chunk, [])
             locations.append(chunk_servers)
+            
+        print(f"DEBUG: Read locations: {locations}")
 
         return {"status": "OK", "chunks": chunks, "locations": locations}
 
@@ -533,21 +554,25 @@ class MasterServer:
 
         if chunk_id not in self.chunk_modified_replication:
             if len(self.chunk_access_times[chunk_id]) > self.max_request_threshold:
+                # print(
+                #     f"DEBUG: Chunk {chunk_id} accessed {len(self.chunk_access_times[chunk_id])} times"
+                # )
                 self.chunk_modified_replication[chunk_id] = 4
-                self.handle_increase_replication(chunk_id)
-            elif len(
-                self.chunk_access_times[chunk_id]
-            ) > self.chunk_modified_replication.get(chunk_id, 0):
-                self.chunk_modified_replication[chunk_id] += 1
-                self.handle_increase_replication(chunk_id)
+                req_resp = self.handle_increase_replication(chunk_id)
         else:
-            if len(self.chunk_access_times[chunk_id]) > self.max_request_threshold:
-                self.chunk_modified_replication[chunk_id] = 4
-                self.handle_increase_replication(chunk_id)
+            if (
+                len(self.chunk_access_times[chunk_id])
+                > self.chunk_modified_replication[chunk_id]
+            ):
+                # print(
+                #     f"DEBUG: Chunk {chunk_id} accessed {len(self.chunk_access_times[chunk_id])} times. Modified replication: {self.chunk_modified_replication[chunk_id]}"
+                # )
+                self.chunk_modified_replication[chunk_id] += 1
+                req_resp = self.handle_increase_replication(chunk_id)
 
-        print(
-            f"Chunk access times: {self.chunk_access_times}, Chunk modified replication: {self.chunk_modified_replication.get(chunk_id, 0)}"
-        )
+        # print(
+        #     f"Chunk access times: {self.chunk_access_times}, Chunk modified replication: {self.chunk_modified_replication.get(chunk_id, 0)}"
+        # )
         return
 
 

@@ -302,8 +302,8 @@ class Client:
 # Example usage
 if __name__ == "__main__":
     client = Client("127.0.0.1", 5000)
-    operation = sys.argv[2]
     filename = sys.argv[1]
+    operation = sys.argv[2]
 
     if operation == "write":
         print("Write operation selected.")
