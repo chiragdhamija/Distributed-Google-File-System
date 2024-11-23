@@ -6,6 +6,8 @@
 - changing names of commands
 - Try to relax the assumptions
 - Basic file locking (multiple reads and single update)
+- Report 
+- Presentation
 
 # Assumptions 
 - An update operation can be done if and only if the primary and secondary servers both are alive for the file
