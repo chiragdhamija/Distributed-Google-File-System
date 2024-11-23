@@ -3,6 +3,7 @@ import socket
 import threading
 import json
 import random
+from time import time
 
 
 class MasterServer:
@@ -10,11 +11,17 @@ class MasterServer:
         self.host = host
         self.port = port
         self.root_dir = root_dir
+        self.max_request_threshold = (
+            2  # Requests server can handle within threshold_timeout
+        )
+        self.threshold_timeout = 5  # seconds
         self.replication_factor = 3
         self.chunk_servers = []  # List of chunk server addresses
         self.next_chunk_id = 0
         self.lock = threading.Lock()
         self.chunk_size = chunk_size
+        self.chunk_access_times = {}  # Track chunk access times
+        self.chunk_modified_replication = {}  # Track chunks modified for replication
 
         # Load metadata from persistent storage if available
         os.makedirs(self.root_dir, exist_ok=True)
@@ -70,6 +77,62 @@ class MasterServer:
 
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+
+    def handle_increase_replication(self, chunk_id):
+        """
+        Increase the replication factor for a chunk by adding a new replica server.
+        """
+        if chunk_id not in self.chunk_locations:
+            print(f"Chunk {chunk_id} not found")
+            return
+
+        # Retrieve the current chunk locations
+        current_locations = self.chunk_locations[chunk_id]
+
+        # Randomly select a new replica server from the available chunk servers but not in chunk locations
+        available_servers = set(self.chunk_servers) - set(current_locations)
+        if not available_servers:
+            print("INC_REPL: No available servers to increase replication")
+            return
+        else:
+            possible_replica_servers = random.choice(list(available_servers))
+
+        success = False
+        for server in current_locations:
+            # Connect to each server to replicate chunk
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(server)
+                request = {
+                    "type": "INCREASE_REPLICATION",
+                    "chunk_id": chunk_id,
+                    "available_servers": possible_replica_servers,
+                }
+                s.send(json.dumps(request).encode())
+                response = json.loads(s.recv(1024))
+                if response.get("status") == "Error":
+                    print(
+                        f"Failed to increase replication for chunk {chunk_id} on server {server}: {response['message']}.\nTrying next server..."
+                    )
+                elif response.get("status") == "OK":
+                    success = True
+                    print(
+                        f"Successfully increased replication for chunk {chunk_id} on server {server}.\nNew replica server: {response['server']}"
+                    )
+                    current_locations.append(response["server"])
+                    self.chunk_locations[chunk_id] = current_locations
+                    self.save_metadata(self.chunk_locations, "chunk_locations.json")
+                    break
+                else:
+                    print(
+                        f"Unexpected response from server {server}: {response['status']}"
+                    )
+
+        if not success:
+            print("INC_REPL: Failed to increase replication for chunk {chunk_id}")
+            return
+        else:
+            print(f"INC_REPL: Successfully increased replication for chunk {chunk_id}")
+            return
 
     def handle_rename(self, old_filename, new_filename):
         # Check if the old filename exists
@@ -450,6 +513,42 @@ class MasterServer:
         self.save_metadata(self.chunk_locations, "chunk_locations.json")
 
         return {"status": "OK", "chunk_info": updated_chunk_info}
+
+    def record_chunk_access(self, chunk_id):
+        """
+        Record the access time for a chunk and increase replication if necessary.
+        """
+        current_time = time()
+
+        if not chunk_id in self.chunk_access_times:
+            self.chunk_access_times[chunk_id] = []
+
+        self.chunk_access_times[chunk_id].append(current_time)
+
+        self.chunk_access_times[chunk_id] = [
+            ts
+            for ts in self.chunk_access_times[chunk_id]
+            if current_time - ts < self.threshold_timeout
+        ]
+
+        if chunk_id not in self.chunk_modified_replication:
+            if len(self.chunk_access_times[chunk_id]) > self.max_request_threshold:
+                self.chunk_modified_replication[chunk_id] = 4
+                self.handle_increase_replication(chunk_id)
+            elif len(
+                self.chunk_access_times[chunk_id]
+            ) > self.chunk_modified_replication.get(chunk_id, 0):
+                self.chunk_modified_replication[chunk_id] += 1
+                self.handle_increase_replication(chunk_id)
+        else:
+            if len(self.chunk_access_times[chunk_id]) > self.max_request_threshold:
+                self.chunk_modified_replication[chunk_id] = 4
+                self.handle_increase_replication(chunk_id)
+
+        print(
+            f"Chunk access times: {self.chunk_access_times}, Chunk modified replication: {self.chunk_modified_replication.get(chunk_id, 0)}"
+        )
+        return
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ class ChunkServer:
 
     def start(self):
         self.register_with_master()
+        threading.Thread(target=self.handle_master).start()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind((self.host, self.port))
         server_socket.listen(5)
@@ -27,6 +28,45 @@ class ChunkServer:
         while True:
             client_socket, address = server_socket.accept()
             threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+
+    def handle_master(self):
+        """
+        Function to handle dynamic replication tasks
+        """
+        master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            master_socket.connect((self.master_host, self.master_port))
+            while True:
+                data = json.loads(master_socket.recv(1024))
+                request = data.get("type")
+
+                if request == "INCREASE_REPLICATION":
+                    chunk_id = data["chunk_id"]
+                    servers_with_current_replicas = data["replicas"]
+                    servers_without_replicas = data["available_servers"]
+                    resp = self.increase_replication(
+                        chunk_id,
+                        servers_with_current_replicas,
+                        servers_without_replicas,
+                    )
+                    resp["server"] = (self.host, self.port)
+                    resp["type"] = "INCREASE_REPLICATION"
+                    resp["chunk_id"] = chunk_id
+                    """
+                    Returns current server address, operation type, chunk_id, status, message, and new replica server address
+                    
+                    server : Current server address - tuple (host, port)
+                    type : Operation type - string
+                    chunk_id : Chunk ID - int
+                    status : Status of operation - string
+                    message : Message - string
+                    new_replica_server : New replica server address - tuple (host, port)
+                    """
+                    master_socket.send(json.dumps(resp).encode())
+
+        except Exception as e:
+            print(f"Error connecting to master: {e}")
+            return
 
     def register_with_master(self):
         master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -282,6 +322,60 @@ class ChunkServer:
 
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+
+    def increase_replication(self, chunk_id, servers_without_replicas):
+        """
+        Function to increase replication of a chunk
+        """
+        # Read the chunk data from the current server (could be primary or replica)
+        chunk_file = os.path.join(self.storage_dir, f"chunk_{chunk_id}.dat")
+        if not os.path.exists(chunk_file):
+            chunk_file = os.path.join(self.storage_dir, f"chunk_{chunk_id}_replica.dat")
+
+        if not os.path.exists(chunk_file):
+            print(f"Chunk file {chunk_file} not found on server")
+            return {
+                "status": "Error",
+                "message": "Chunk file not found on server",
+                "server": (self.host, self.port),
+            }
+
+        with open(chunk_file, "r") as f:
+            content = f.read()
+
+        # Replicate the chunk to the servers without replicas
+        success = 0
+        new_replica_server = None
+        for server in servers_without_replicas:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(tuple(server))
+                request = {
+                    "type": "WRITE",
+                    "chunk_id": chunk_id,
+                    "content": content,
+                    "replicas": [],
+                }
+                s.send(json.dumps(request).encode())
+                response = s.recv(1024)
+                if json.loads(response).get("status") == "OK":
+                    success += 1
+                    new_replica_server = server
+                    break
+
+        if success == 0:
+            print(f"Failed to replicate chunk {chunk_id} to any server")
+            return {
+                "status": "Error",
+                "message": "Failed to replicate chunk",
+                "server": (self.host, self.port),
+            }
+        elif success == 1:
+            print(f"Successfully replicated chunk {chunk_id} to a new server")
+            return {
+                "status": "OK",
+                "message": "Successfully increased chunk replication",
+                "server": new_replica_server,
+            }
 
 
 if __name__ == "__main__":
