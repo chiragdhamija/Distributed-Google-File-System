@@ -305,7 +305,7 @@ if __name__ == "__main__":
     operation = sys.argv[2]
     filename = sys.argv[1]
 
-    if operation == "write":
+    if operation == "overwrite":
         print("Write operation selected.")
         data = input("Please enter the data that you want to write: ")
         client.write(filename, data)
@@ -324,7 +324,7 @@ if __name__ == "__main__":
     elif operation == "rename":
         new_filename = input("Enter the new filename: ")
         client.rename(filename, new_filename)
-    elif operation == "write_offset":
+    elif operation == "write":
         data = input("Please enter the data that you want to write at the offset: ")
         offset = int(input("Please enter the offset : "))
         client.write_offset(filename, data, offset)

@@ -8,23 +8,32 @@
 - Basic file locking (multiple reads and single update)
 - Report 
 - Presentation
+- Hierarchical namespace for files, flat namespace for chunks
+- Chunk Locations
+  - Kept in memory, no persistent states : Master polls chunkservers at startup
+  - master can restart and recover chunks from chunkservers
+  - Note that the hierarchical file namespace is kept on durable storage in the master
 
 # Assumptions 
 - An update operation can be done if and only if the primary and secondary servers both are alive for the file
+- You cannot create a file with same name if it is already present in the GFS
+- No master replication
+
 # How to run the code
 - run the bash file precompile.sh
 - run the master server by running python3 master.py
 - run atleast 3 chunkservers by running python3 chunkserver.py <port_number>
 - run client by python3 client.py <file_name> <operation> 
 - operations that can be run in the client are read, write.
+
 ## GFS Architecture 
 ### Single master multiple chunkservers , accessed by many clients.
 ### File
 - divided into fixed-size chunks
 - labelled with 64-bit unique global IDs(called handles)
 - stored at chunk servers
-- 3-way replicated across chunk servers
-- master keeps track of metadata (e.g., which chunks belong to which files)
+- 3-way replicated across chunk servers (w/o dynamic replication)
+- master keeps track of metadata (e.g., which chunks belong to which files, which chunks belongs to which chunkserver(both primary and secondary chunkserver))
 
 
 ## GFS Basic Functioning
@@ -33,22 +42,14 @@
 - Minimizing the master’s involvement in read/write operations alleviates the single-master bottleneck
 
 ## Chunks 
-- Larger blocks of size 64 MB (analogous to FS blocks, except larger)
+- Larger blocks of size 12 Bytes each (size is kept very low in order to ease testing , can be changed by changing the variable self.chunk_size in each file)
 
 ## GFS Master
-- A process running on a separate machine Initially, GFS supported just a single master, but then
-they added master replication for fault-tolerance in
-other versions/distributed storage systems
-- Stores all metadata
- 	-File and chunk namespaces
-		-Hierarchical namespace for files, flat namespace for chunks
+- A process running on a separate machine . This GFS supports a single master.
+- Stores all metadata		
 - File-to-chunk mappings
-- Locations of a chunk’s replicas
+- Locations of a primary and secondary chunkserver for each chunk.
 
-## Chunk Locations
-- Kept in memory, no persistent states : Master polls chunkservers at startup
-- master can restart and recover chunks from chunkservers
-- Note that the hierarchical file namespace is kept on durable storage in the master
 
 ## GFS Master <--> ChunkServers (Heartbeat mechanism)
 - Master and chunkserver communicate regularly
