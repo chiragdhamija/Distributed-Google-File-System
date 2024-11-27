@@ -3,6 +3,7 @@ import socket
 import threading
 import json
 import sys
+import time
 
 
 class ChunkServer:
@@ -14,12 +15,17 @@ class ChunkServer:
         self.master_host = master_host
         self.master_port = master_port
         self.storage_dir = f"{storage_dir}_{port}"
+        self.heartbeat_interval = 5  # seconds
+        self.request_count = 0
+        self.request_count_lock = threading.Lock()
         self.chunk_size = 12
         os.makedirs(self.storage_dir, exist_ok=True)
 
     def start(self):
         self.register_with_master()
         threading.Thread(target=self.handle_master).start()
+        # Thread for heartbeat
+        threading.Thread(target=self.heartbeat).start()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind((self.host, self.port))
         server_socket.listen(5)
@@ -80,6 +86,35 @@ class ChunkServer:
             print("DEBUG: Closing connection with master.")
             conn.close()
 
+    def heartbeat(self):
+        """
+        Function to send heartbeat to the master
+        """
+        while True:
+            try:
+                master_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                # print(f"Heartbeat: {self.request_count}")
+                with self.request_count_lock:
+                    heartbeat_data = {
+                        "type": "HEARTBEAT",
+                        "chunk_server_id": str(self.host) + ":" + str(self.port),
+                        "timestamp": time.time(),
+                        "num_requests": self.request_count,
+                    }
+                    master_socket.sendto(
+                        json.dumps(heartbeat_data).encode(),
+                        (self.master_host, self.master_port + 1),
+                    )
+                    self.request_count = 0
+                # print(
+                #     f"DEBUG: Sent heartbeat to master at {self.master_host}:{self.master_port + 1}, requests: {self.request_count}"
+                # )
+            except Exception as e:
+                print(f"Error sending heartbeat to master: {e}")
+            finally:
+                # Sleep for 5 seconds before sending the next heartbeat
+                time.sleep(5)
+
     def register_with_master(self):
         master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         master_socket.connect((self.master_host, self.master_port))
@@ -93,6 +128,9 @@ class ChunkServer:
     def handle_client(self, client_socket):
         data = json.loads(client_socket.recv(1024))
         request = data.get("type")
+
+        with self.request_count_lock:
+            self.request_count += 1
 
         if request == "READ":
             chunk_id = data["chunk_id"]
@@ -121,6 +159,10 @@ class ChunkServer:
         elif request == "GET_CHUNK_SIZE":
             chunk_id = data["chunk_id"]
             self.get_chunk_size(client_socket, chunk_id)
+        else:
+            print("Invalid request type")
+            with self.request_count_lock:
+                self.request_count -= 1
 
     def get_chunk_size(self, client_socket, chunk_id):
 
@@ -238,7 +280,7 @@ class ChunkServer:
             response = {"status": "Error", "message": "Chunk not found"}
 
         # Send the response to the client
-        print(f"here {response}")
+        # print(f"here {response}")
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
 
@@ -272,7 +314,7 @@ class ChunkServer:
         ):  # For secondary (replica) servers, store as chunk_{chunk_id}_replica.dat
             chunk_file = os.path.join(self.storage_dir, f"chunk_{chunk_id}_replica.dat")
         # Read existing data and overwrite from the offset
-        print(f"here {len(replicas)}")
+        # print(f"here {len(replicas)}")
         existing_data = ""
         if os.path.exists(chunk_file):
             with open(chunk_file, "r") as f:
