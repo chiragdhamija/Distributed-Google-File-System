@@ -40,13 +40,18 @@ class Client:
             return
 
         print("File found, retrieving chunks...")
-        download_dir = "client_files"
+        download_dir = "client_files"   
         os.makedirs(download_dir, exist_ok=True)
 
         # Open a file in write mode to store the content of the chunks
         with open(f"{download_dir}/{filename}", "wb") as file:
             for chunk_id, servers in zip(response["chunks"], response["locations"]):
                 self.retrieve_chunk_data(chunk_id, servers, file)
+                
+        # Read the content of the file and display it to the user
+        with open(f"{download_dir}/{filename}", "r") as file:
+            content = file.read()
+            print(f"Content of file {filename}: {content}")
 
     def retrieve_chunk_data(self, chunk_id, servers, file):
         content = None
@@ -68,9 +73,9 @@ class Client:
                     response = json.loads(chunk_socket.recv(1024))
                     if response.get("status") == "OK":
                         content = response.get("content", "").rstrip("%")
-                        print(
-                            f"Content of chunk {chunk_id} (without padding): {content}"
-                        )
+                        # print(
+                        #     f"Content of chunk {chunk_id} (without padding): {content}"
+                        # )
                         break  # Exit the loop once data is successfully retrieved
 
             except (ConnectionRefusedError, socket.timeout):
@@ -302,8 +307,8 @@ class Client:
 # Example usage
 if __name__ == "__main__":
     client = Client("127.0.0.1", 5000)
-    operation = sys.argv[2]
     filename = sys.argv[1]
+    operation = sys.argv[2]
 
     if operation == "overwrite":
         print("Write operation selected.")

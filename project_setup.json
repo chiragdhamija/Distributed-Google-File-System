@@ -1,0 +1,115 @@
+{
+    "child": {
+        "child1": {
+            "child1": {
+                "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                "height": 374,
+                "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                "readOnly": false,
+                "synchronizedInput": true,
+                "type": "Terminal",
+                "uuid": "5ee6546c-bb60-4c03-93e1-8c33221aa30f",
+                "width": 720
+            },
+            "child2": {
+                "child1": {
+                    "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                    "height": 374,
+                    "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                    "readOnly": false,
+                    "synchronizedInput": true,
+                    "type": "Terminal",
+                    "uuid": "2c2bd5e2-b267-491a-926f-f008ba08fa26",
+                    "width": 360
+                },
+                "child2": {
+                    "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                    "height": 374,
+                    "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                    "readOnly": false,
+                    "synchronizedInput": true,
+                    "type": "Terminal",
+                    "uuid": "3d0fb323-9e51-42eb-9f77-891611c6cf04",
+                    "width": 359
+                },
+                "orientation": 0,
+                "position": 25,
+                "ratio": 0.5,
+                "type": "Paned"
+            },
+            "orientation": 1,
+            "position": 49,
+            "ratio": 0.499332443257676895,
+            "type": "Paned"
+        },
+        "child2": {
+            "child1": {
+                "child1": {
+                    "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                    "height": 374,
+                    "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                    "readOnly": false,
+                    "synchronizedInput": true,
+                    "type": "Terminal",
+                    "uuid": "d81c4edc-7a35-4f6f-8a44-9d19dace18d8",
+                    "width": 359
+                },
+                "child2": {
+                    "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                    "height": 374,
+                    "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                    "readOnly": false,
+                    "synchronizedInput": true,
+                    "type": "Terminal",
+                    "uuid": "77253f53-52f0-4445-86cc-a5269a0933ab",
+                    "width": 359
+                },
+                "orientation": 0,
+                "position": 24,
+                "ratio": 0.499304589707927682,
+                "type": "Paned"
+            },
+            "child2": {
+                "child1": {
+                    "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                    "height": 374,
+                    "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                    "readOnly": false,
+                    "synchronizedInput": true,
+                    "type": "Terminal",
+                    "uuid": "63c5ce7f-fc46-48e4-88d3-b99f8121a721",
+                    "width": 359
+                },
+                "child2": {
+                    "directory": "\/home\/prithvi\/Documents\/DS_GFS",
+                    "height": 374,
+                    "profile": "2b7c4080-0ddd-46c5-8f23-563fd3ba789d",
+                    "readOnly": false,
+                    "synchronizedInput": true,
+                    "type": "Terminal",
+                    "uuid": "ffc02c12-568d-4832-88c1-68a7957c8013",
+                    "width": 359
+                },
+                "orientation": 0,
+                "position": 24,
+                "ratio": 0.499304589707927682,
+                "type": "Paned"
+            },
+            "orientation": 1,
+            "position": 49,
+            "ratio": 0.499332443257676895,
+            "type": "Paned"
+        },
+        "orientation": 0,
+        "position": 50,
+        "ratio": 0.5,
+        "type": "Paned"
+    },
+    "height": 749,
+    "name": "${title}",
+    "synchronizedInput": false,
+    "type": "Session",
+    "uuid": "b9834955-8fab-4166-89ef-e045734906ef",
+    "version": "1.0",
+    "width": 1440
+}

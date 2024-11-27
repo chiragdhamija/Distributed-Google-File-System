@@ -3,6 +3,8 @@ import socket
 import threading
 import json
 import random
+from time import time
+import queue
 
 
 class MasterServer:
@@ -10,11 +12,26 @@ class MasterServer:
         self.host = host
         self.port = port
         self.root_dir = root_dir
+        self.max_request_threshold = (
+            2  # Requests server can handle within threshold_timeout
+        )
+        self.threshold_timeout = 15  # seconds
         self.replication_factor = 3
         self.chunk_servers = []  # List of chunk server addresses
         self.next_chunk_id = 0
         self.lock = threading.Lock()
         self.chunk_size = chunk_size
+        self.chunk_access_times = {}  # Track chunk access times
+        self.chunk_modified_replication = {}  # Track chunks modified for replication
+
+        # Heartbeat
+        self.heartbeat_data = {}
+        self.heartbeat_queue = queue.Queue()
+        self.heartbeat_interval = 5  # seconds
+        self.heartbeat_failure_threshold = 3 * self.heartbeat_interval  # seconds
+        self.max_chunk_server_request_threshold = 10
+        self.heartbeat_lock = threading.Lock()
+        self.failed_chunk_servers = set()
 
         # Load metadata from persistent storage if available
         os.makedirs(self.root_dir, exist_ok=True)
@@ -38,6 +55,11 @@ class MasterServer:
         server_socket.bind((self.host, self.port))
         server_socket.listen(5)
         print(f"Master server started on {self.host}:{self.port}")
+
+        # Heartbeats
+        threading.Thread(target=self.receive_heartbeats).start()
+        threading.Thread(target=self.process_heartbeats).start()
+        threading.Thread(target=self.check_failed_servers).start()
 
         while True:
             client_socket, address = server_socket.accept()
@@ -68,8 +90,213 @@ class MasterServer:
                 data["filename"], data["data"], data["offset"]
             )
 
+        # print(f"DEBUG: Sending response {response} for {response} to client {client_socket}")
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+
+    def receive_heartbeats(self):
+        """
+        Receive heartbeats from chunk servers and update the heartbeat data.
+        """
+        # Create TCP socket to receive heartbeats
+        heartbeat_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        heartbeat_socket.bind((self.host, self.port + 1))
+        print(f"Heartbeat listener started on {self.host}:{self.port + 1}")
+
+        while True:
+            try:
+                data = heartbeat_socket.recvfrom(1024)
+                heartbeat_data = json.loads(data[0].decode())
+
+                # Check if heartbeat
+                if heartbeat_data.get("type") != "HEARTBEAT":
+                    print(f"Invalid data in heartbeat port: {heartbeat_data}")
+                    continue
+
+                chunk_server_id = heartbeat_data["chunk_server_id"]
+                timestamp = heartbeat_data["timestamp"]
+                num_requests = heartbeat_data["num_requests"]
+
+                # print(f"Received heartbeat from chunk server {chunk_server_id}, {timestamp}, {num_requests}")
+                self.heartbeat_queue.put((chunk_server_id, timestamp, num_requests))
+
+            except Exception as e:
+                print(f"Error receiving heartbeat: {e}")
+
+    def process_heartbeats(self):
+        """
+        Process the heartbeats received from chunk servers.
+        """
+        while True:
+            try:
+                if self.heartbeat_queue.empty():
+                    continue
+
+                chunk_server_id, timestamp, num_requests = self.heartbeat_queue.get()
+
+                # print(f"Processing heartbeat from chunk server {chunk_server_id}")
+
+                # Check if the chunk server is already in the failed list and remove it since it is now active
+                if chunk_server_id in self.failed_chunk_servers:
+                    print(f"Chunk server {chunk_server_id} is now active")
+                    self.failed_chunk_servers.remove(chunk_server_id)
+
+                # Check if requests are beyond the threshold
+                if num_requests > self.max_chunk_server_request_threshold:
+                    print(
+                        f"Chunk server {chunk_server_id} exceeded request threshold ({num_requests})"
+                    )
+                    print("Replicating chunks...")
+                    self.handle_server_replication(chunk_server_id, False)
+
+                # Save the heartbeat data
+                with self.heartbeat_lock:
+                    self.heartbeat_data[chunk_server_id] = {
+                        "timestamp": timestamp,
+                        "num_requests": num_requests,
+                    }
+
+            except Exception as e:
+                print(f"Error processing heartbeat: {e}")
+
+    def check_failed_servers(self):
+        """
+        Iterate over the heartbeat data to check for failed servers.
+        """
+        while True:
+            try:
+                with self.heartbeat_lock:
+                    for chunk_server_id, data in self.heartbeat_data.items():
+                        current_time = time()
+                        last_heartbeat = data["timestamp"]
+                        if (
+                            current_time - last_heartbeat
+                            > self.heartbeat_failure_threshold
+                        ):
+                            print(f"Chunk server {chunk_server_id} failed")
+                            self.failed_chunk_servers.add(chunk_server_id)
+                            print("Replicating chunks...")
+                            self.handle_server_replication(chunk_server_id, True)
+
+            except Exception as e:
+                print(f"Error checking failed servers: {e}")
+
+    def get_server_list(self, server):
+        """
+        Function to convert server id string to list
+        """
+        host, port = server.split(":")
+        return [host, int(port)]
+
+    def handle_server_replication(self, server_details, failed):
+        """
+        Replicate chunks from a server to other servers.
+        """
+
+        server_list = self.get_server_list(server_details)
+
+        found = False
+
+        for chunk_id, servers in self.chunk_locations.items():
+            if server_list in servers:
+
+                found = True
+
+                print(f"DEBUG: Replicating chunk {chunk_id} from server {server_list}")
+
+                req = self.handle_increase_replication(chunk_id)
+
+                if failed:
+                    # Remove the failed server from the chunk locations
+                    servers.remove(server_list)
+                    self.chunk_locations[chunk_id] = servers
+                    self.save_metadata(self.chunk_locations, "chunk_locations.json")
+
+                if not req:
+                    print(
+                        f"Failed to replicate chunk {chunk_id} from server {server_list}"
+                    )
+                else:
+                    print(
+                        f"Successfully replicated chunk {chunk_id} from server {server_list}"
+                    )
+
+        if not found:
+            print(f"No chunks found for server {server_list}")
+        else:
+            print(f"Replication complete for server {server_list}")
+
+    def handle_increase_replication(self, chunk_id):
+        """
+        Increase the replication factor for a chunk by adding a new replica server.
+        """
+        if chunk_id not in self.chunk_locations:
+            print(f"Chunk {chunk_id} not found")
+            return False
+
+        # Retrieve the current chunk locations
+        current_locations = self.chunk_locations[chunk_id]
+        # print(f"DEBUG: Current locations for chunk {chunk_id}: {current_locations}")
+
+        # Randomly select a new replica server from the available chunk servers but not in chunk locations
+        # available_servers = set(self.chunk_servers) - set(current_locations)
+        available_servers = []
+        for server in self.chunk_servers:
+            if server not in current_locations:
+                available_servers.append(server)
+
+        if not available_servers:
+            print("INC_REPL: No available servers to increase replication")
+            return False
+        else:
+            possible_replica_servers = list(available_servers)
+
+        success = False
+        for server in current_locations:
+            # Connect to each server to replicate chunk
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if isinstance(server, list):
+                    # server[1] += 1
+                    copy_server = server.copy()
+                    copy_server[1] += 1
+                    copy_server = tuple(copy_server)
+                s.connect(copy_server)
+                request = {
+                    "type": "INCREASE_REPLICATION",
+                    "chunk_id": chunk_id,
+                    "available_servers": possible_replica_servers,
+                }
+                # print(f"DEBUG: Sending request {request} to server {server}")
+                s.sendall(json.dumps(request).encode())
+                # print(f"DEBUG: Sent request to server {server}")
+                response = json.loads(s.recv(1024))
+                # print(f"DEBUG: Received response {response} from server {server}")
+                if response.get("status") == "Error":
+                    print(
+                        f"Failed to increase replication for chunk {chunk_id} on server {server}: {response['message']}.\nTrying next server..."
+                    )
+                elif response.get("status") == "OK":
+                    success = True
+                    new_server_replicated = response.get("new_server")
+                    print(
+                        f"Successfully increased replication for chunk {chunk_id} on server {server}.\nNew replica server: {new_server_replicated}"
+                    )
+                    current_locations.append(new_server_replicated)
+                    self.chunk_locations[chunk_id] = current_locations
+                    # print(f"DEBUG: Updated chunk locations: {self.chunk_locations}")
+                    self.save_metadata(self.chunk_locations, "chunk_locations.json")
+                    break
+                else:
+                    print(
+                        f"Unexpected response from server {server}: {response['status']}"
+                    )
+
+        if not success:
+            print("INC_REPL: Failed to increase replication for chunk {chunk_id}")
+            return False
+        else:
+            print(f"INC_REPL: Successfully increased replication for chunk {chunk_id}")
+            return True
 
     def handle_rename(self, old_filename, new_filename):
         # Check if the old filename exists
@@ -204,8 +431,12 @@ class MasterServer:
         locations = []
         for chunk in chunks:
             # Retrieve all servers (primary and replicas) for the chunk
+            self.record_chunk_access(chunk)
+            # print(f"DEBUG: Recorded access for chunk {chunk}")
             chunk_servers = self.chunk_locations.get(chunk, [])
             locations.append(chunk_servers)
+
+        print(f"DEBUG: Read locations: {locations}")
 
         return {"status": "OK", "chunks": chunks, "locations": locations}
 
@@ -257,6 +488,8 @@ class MasterServer:
 
                 chunk_ids.append(chunk_id)
                 primary_servers.append(primary_server)
+
+            # print(f"DEBUG: Write locations: {self.chunk_locations}")
 
             return {
                 "status": "OK",
@@ -450,6 +683,46 @@ class MasterServer:
         self.save_metadata(self.chunk_locations, "chunk_locations.json")
 
         return {"status": "OK", "chunk_info": updated_chunk_info}
+
+    def record_chunk_access(self, chunk_id):
+        """
+        Record the access time for a chunk and increase replication if necessary.
+        """
+        current_time = time()
+
+        if not chunk_id in self.chunk_access_times:
+            self.chunk_access_times[chunk_id] = []
+
+        self.chunk_access_times[chunk_id].append(current_time)
+
+        self.chunk_access_times[chunk_id] = [
+            ts
+            for ts in self.chunk_access_times[chunk_id]
+            if current_time - ts < self.threshold_timeout
+        ]
+
+        if chunk_id not in self.chunk_modified_replication:
+            if len(self.chunk_access_times[chunk_id]) > self.max_request_threshold:
+                # print(
+                #     f"DEBUG: Chunk {chunk_id} accessed {len(self.chunk_access_times[chunk_id])} times"
+                # )
+                self.chunk_modified_replication[chunk_id] = 4
+                req_resp = self.handle_increase_replication(chunk_id)
+        else:
+            if (
+                len(self.chunk_access_times[chunk_id])
+                > self.chunk_modified_replication[chunk_id]
+            ):
+                # print(
+                #     f"DEBUG: Chunk {chunk_id} accessed {len(self.chunk_access_times[chunk_id])} times. Modified replication: {self.chunk_modified_replication[chunk_id]}"
+                # )
+                self.chunk_modified_replication[chunk_id] += 1
+                req_resp = self.handle_increase_replication(chunk_id)
+
+        # print(
+        #     f"Chunk access times: {self.chunk_access_times}, Chunk modified replication: {self.chunk_modified_replication.get(chunk_id, 0)}"
+        # )
+        return
 
 
 if __name__ == "__main__":

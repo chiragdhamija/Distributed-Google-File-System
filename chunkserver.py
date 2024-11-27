@@ -3,6 +3,7 @@ import socket
 import threading
 import json
 import sys
+import time
 
 
 class ChunkServer:
@@ -14,11 +15,17 @@ class ChunkServer:
         self.master_host = master_host
         self.master_port = master_port
         self.storage_dir = f"{storage_dir}_{port}"
+        self.heartbeat_interval = 5  # seconds
+        self.request_count = 0
+        self.request_count_lock = threading.Lock()
         self.chunk_size = 12
         os.makedirs(self.storage_dir, exist_ok=True)
 
     def start(self):
         self.register_with_master()
+        threading.Thread(target=self.handle_master).start()
+        # Thread for heartbeat
+        threading.Thread(target=self.heartbeat).start()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind((self.host, self.port))
         server_socket.listen(5)
@@ -27,6 +34,86 @@ class ChunkServer:
         while True:
             client_socket, address = server_socket.accept()
             threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+
+    def handle_master(self):
+        """
+        Function to handle dynamic replication tasks
+        """
+        master_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        master_listener.bind((self.host, self.port + 1))
+        master_listener.listen(1)  # Accept only one connection for master
+        # print(f"DEBUG: Listening for master connection on {self.host}:{self.port + 1}")
+
+        # Accept a single connection from master
+        conn, addr = master_listener.accept()
+        print(f"DEBUG: Connected to master at {addr}")
+
+        try:
+            buffer = b""
+            while True:
+                chunk = conn.recv(1024)
+                if not chunk:
+                    continue
+
+                buffer += chunk
+
+                try:
+                    data = json.loads(buffer.decode())
+                    request = data.get("type")
+                    print(f"DEBUG: Received request from master: {request}")
+
+                    if request == "INCREASE_REPLICATION":
+                        chunk_id = data["chunk_id"]
+                        servers_without_replicas = data["available_servers"]
+                        resp = self.increase_replication(
+                            chunk_id,
+                            servers_without_replicas,
+                        )
+                        resp["server"] = (self.host, self.port)
+                        resp["type"] = "INCREASE_REPLICATION"
+                        resp["chunk_id"] = chunk_id
+
+                        conn.send(json.dumps(resp).encode())
+                        # print("DEBUG: Response sent to master.")
+
+                except json.JSONDecodeError:
+                    print("DEBUG: Invalid JSON received, ignoring...")
+                    continue
+
+        except Exception as e:
+            print(f"Error handling master request: {e}")
+        finally:
+            print("DEBUG: Closing connection with master.")
+            conn.close()
+
+    def heartbeat(self):
+        """
+        Function to send heartbeat to the master
+        """
+        while True:
+            try:
+                master_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                # print(f"Heartbeat: {self.request_count}")
+                with self.request_count_lock:
+                    heartbeat_data = {
+                        "type": "HEARTBEAT",
+                        "chunk_server_id": str(self.host) + ":" + str(self.port),
+                        "timestamp": time.time(),
+                        "num_requests": self.request_count,
+                    }
+                    master_socket.sendto(
+                        json.dumps(heartbeat_data).encode(),
+                        (self.master_host, self.master_port + 1),
+                    )
+                    self.request_count = 0
+                # print(
+                #     f"DEBUG: Sent heartbeat to master at {self.master_host}:{self.master_port + 1}, requests: {self.request_count}"
+                # )
+            except Exception as e:
+                print(f"Error sending heartbeat to master: {e}")
+            finally:
+                # Sleep for 5 seconds before sending the next heartbeat
+                time.sleep(5)
 
     def register_with_master(self):
         master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -41,6 +128,9 @@ class ChunkServer:
     def handle_client(self, client_socket):
         data = json.loads(client_socket.recv(1024))
         request = data.get("type")
+
+        with self.request_count_lock:
+            self.request_count += 1
 
         if request == "READ":
             chunk_id = data["chunk_id"]
@@ -69,6 +159,10 @@ class ChunkServer:
         elif request == "GET_CHUNK_SIZE":
             chunk_id = data["chunk_id"]
             self.get_chunk_size(client_socket, chunk_id)
+        else:
+            print("Invalid request type")
+            with self.request_count_lock:
+                self.request_count -= 1
 
     def get_chunk_size(self, client_socket, chunk_id):
 
@@ -186,7 +280,7 @@ class ChunkServer:
             response = {"status": "Error", "message": "Chunk not found"}
 
         # Send the response to the client
-        print(f"here {response}")
+        # print(f"here {response}")
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
 
@@ -220,7 +314,7 @@ class ChunkServer:
         ):  # For secondary (replica) servers, store as chunk_{chunk_id}_replica.dat
             chunk_file = os.path.join(self.storage_dir, f"chunk_{chunk_id}_replica.dat")
         # Read existing data and overwrite from the offset
-        print(f"here {len(replicas)}")
+        # print(f"here {len(replicas)}")
         existing_data = ""
         if os.path.exists(chunk_file):
             with open(chunk_file, "r") as f:
@@ -282,6 +376,80 @@ class ChunkServer:
 
         client_socket.send(json.dumps(response).encode())
         client_socket.close()
+
+    def increase_replication(self, chunk_id, servers_without_replicas):
+        """
+        Function to increase replication of a chunk
+        """
+        print(
+            f"DEBUG: Increasing replication for chunk {chunk_id} from {self.host}:{self.port}"
+        )
+
+        # Read the chunk data from the current server (could be primary or replica)
+        chunk_file = os.path.join(self.storage_dir, f"chunk_{chunk_id}.dat")
+        if not os.path.exists(chunk_file):
+            print(f"DEBUG: Checking for replica")
+            chunk_file = os.path.join(self.storage_dir, f"chunk_{chunk_id}_replica.dat")
+
+        if not os.path.exists(chunk_file):
+            print(f"Chunk file {chunk_file} not found on server")
+            return {
+                "status": "Error",
+                "message": "Chunk file not found on server",
+                "server": (self.host, self.port),
+            }
+
+        with open(chunk_file, "r") as f:
+            content = f.read()
+
+        # print(
+        #     f"DEBUG: Read chunk {chunk_id} from {self.host}:{self.port}. Content: {content}"
+        # )
+
+        # Replicate the chunk to the servers without replicas
+        success = 0
+        new_replica_server = None
+        for server in servers_without_replicas:
+            # print(f"DEBUG: Replicating chunk {chunk_id} to {server}")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                # print(f"DEBUG: Connecting to {server}")
+                s.connect(tuple(server))
+                # print(f"DEBUG: Connected to {server}")
+                request = {
+                    "type": "WRITE",
+                    "chunk_id": chunk_id,
+                    "content": content,
+                    "replicas": [],
+                }
+                # print(f"DEBUG: Sending request to {server}: {request}")
+                s.send(json.dumps(request).encode())
+                # print(f"DEBUG: Waiting for response from {server}")
+                response = s.recv(1024)
+                # print(f"DEBUG: Received response from {server}: {response}")
+                if json.loads(response).get("status") == "OK":
+                    print(
+                        f"DEBUG: Successfully replicated chunk {chunk_id} to {server}"
+                    )
+                    success += 1
+                    new_replica_server = server
+                    break
+
+        if success == 0:
+            print(f"Failed to replicate chunk {chunk_id} to any server")
+            return {
+                "status": "Error",
+                "message": "Failed to replicate chunk",
+                "server": (self.host, self.port),
+            }
+        elif success == 1:
+            print(
+                f"Successfully replicated chunk {chunk_id} to a new server, {new_replica_server}"
+            )
+            return {
+                "status": "OK",
+                "message": "Successfully increased chunk replication",
+                "new_server": tuple(new_replica_server),
+            }
 
 
 if __name__ == "__main__":
