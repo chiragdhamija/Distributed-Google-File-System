@@ -40,7 +40,7 @@
 
 ### Read Operation (read)
 Step 1 (Client → Master): File name/path (requesting metadata for the complete file).
-Step 2 (Master → Client): Chunk handles, chunkserver locations (primary and replicas), replication information.
+Step 2 (Master → Client): Chunk handles, chunkserver locations (primary and replicas)
 Step 3 (Client → Chunkservers): For each chunk: requests the primary chunkserver for the chunk data , if primary doesnt respond to it , client asks the secondary chunkserver for the data
 Step 4 (Chunkservers → Client): Data for the requested chunk (entire chunk data).
 Step 5 (Client Reassembles Data): The client combines the chunks in the correct order to reconstruct the entire file.
