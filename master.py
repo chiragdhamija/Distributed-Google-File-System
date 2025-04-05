@@ -13,7 +13,7 @@ class MasterServer:
         self.port = port
         self.root_dir = root_dir
         self.max_request_threshold = (
-            2  # Requests server can handle within threshold_timeout
+            20  # Requests server can handle within threshold_timeout
         )
         self.threshold_timeout = 15  # seconds
         self.replication_factor = 3
@@ -29,7 +29,7 @@ class MasterServer:
         self.heartbeat_queue = queue.Queue()
         self.heartbeat_interval = 5  # seconds
         self.heartbeat_failure_threshold = 3 * self.heartbeat_interval  # seconds
-        self.max_chunk_server_request_threshold = 10
+        self.max_chunk_server_request_threshold = 20
         self.heartbeat_lock = threading.Lock()
         self.failed_chunk_servers = set()
 
@@ -171,7 +171,8 @@ class MasterServer:
                         last_heartbeat = data["timestamp"]
                         if (
                             current_time - last_heartbeat
-                            > self.heartbeat_failure_threshold
+                            > self.heartbeat_failure_threshold and
+                            chunk_server_id not in self.failed_chunk_servers
                         ):
                             print(f"Chunk server {chunk_server_id} failed")
                             self.failed_chunk_servers.add(chunk_server_id)
@@ -254,6 +255,18 @@ class MasterServer:
         success = False
         for server in current_locations:
             # Connect to each server to replicate chunk
+            # Check if server is not failed
+
+            # print(f"DEBUG: {server}")
+
+            copy_server = server.copy()
+            # Convert copy_server[1] to string and concatenate
+            copy_server = ":".join([copy_server[0], str(copy_server[1])])
+            # print(f"DEBUG: copy = {copy_server}, failed = {self.failed_chunk_servers}")
+            if copy_server in self.failed_chunk_servers:
+                print(f"Server {copy_server} is failed. Skipping...")
+                continue
+
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 if isinstance(server, list):
                     # server[1] += 1
