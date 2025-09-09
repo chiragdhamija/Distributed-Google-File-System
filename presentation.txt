@@ -1,0 +1,5 @@
+# Google File System with Dynamic Replication
+
+Presentation : https://www.canva.com/design/DAGXtH4HrCo/bhhCZzUMY73YBFG8B0rvzw/view?utm_content=DAGXtH4HrCo&utm_campaign=designshare&utm_medium=link&utm_source=editor
+
+GitHub Repo: https://github.com/chiragdhamija/DS_GFS
